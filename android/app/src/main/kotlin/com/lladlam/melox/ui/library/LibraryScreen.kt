@@ -1442,6 +1442,7 @@ internal fun MeloXUnifiedSongListDetailScreen(
     onBack: () -> Unit,
     sharedTransitionScope: SharedTransitionScope,
     animatedVisibilityScope: AnimatedVisibilityScope,
+    artworkSharedKey: String? = null,
 ) {
     val context = LocalContext.current.applicationContext
     val client = remember(context) {
@@ -1455,6 +1456,7 @@ internal fun MeloXUnifiedSongListDetailScreen(
         animatedVisibilityScope = animatedVisibilityScope,
         onModalVisibilityChanged = {},
         providedSongs = songs,
+        artworkSharedKey = artworkSharedKey,
     )
 }
 
@@ -1464,21 +1466,40 @@ internal fun MeloXUnifiedPlaylistDetailScreen(
     playlist: NeteasePlaylistSummary,
     onBack: () -> Unit,
     onModalVisibilityChanged: (Boolean) -> Unit = {},
+    // 入口页（首页/发现页/搜索）若要把列表卡片封面一镜到底地接到详情 hero，
+    // 就把自己顶层 SharedTransitionLayout 的作用域与配对 key 传进来；
+    // 不传则保持「自建作用域 + 淡入」的原有行为。
+    sharedTransitionScope: SharedTransitionScope? = null,
+    animatedVisibilityScope: AnimatedVisibilityScope? = null,
+    artworkSharedKey: String? = null,
 ) {
     val context = LocalContext.current.applicationContext
     val client = remember(context) {
         NeteaseLibraryClient(cookieProvider = { NeteaseSessionStore.readCookie(context) })
     }
-    SharedTransitionLayout(Modifier.fillMaxSize()) {
-        AnimatedVisibility(visible = true) {
-            MeloXPlaylistDetailScreen(
-                initialPlaylist = playlist,
-                client = client,
-                onBack = onBack,
-                sharedTransitionScope = this@SharedTransitionLayout,
-                animatedVisibilityScope = this,
-                onModalVisibilityChanged = onModalVisibilityChanged,
-            )
+    if (sharedTransitionScope != null && animatedVisibilityScope != null) {
+        MeloXPlaylistDetailScreen(
+            initialPlaylist = playlist,
+            client = client,
+            onBack = onBack,
+            sharedTransitionScope = sharedTransitionScope,
+            animatedVisibilityScope = animatedVisibilityScope,
+            onModalVisibilityChanged = onModalVisibilityChanged,
+            artworkSharedKey = artworkSharedKey,
+        )
+    } else {
+        SharedTransitionLayout(Modifier.fillMaxSize()) {
+            AnimatedVisibility(visible = true) {
+                MeloXPlaylistDetailScreen(
+                    initialPlaylist = playlist,
+                    client = client,
+                    onBack = onBack,
+                    sharedTransitionScope = this@SharedTransitionLayout,
+                    animatedVisibilityScope = this,
+                    onModalVisibilityChanged = onModalVisibilityChanged,
+                    artworkSharedKey = artworkSharedKey,
+                )
+            }
         }
     }
 }
@@ -1523,6 +1544,12 @@ internal fun MeloXUnifiedAlbumDetailScreen(
 internal fun MeloXUnifiedProviderAlbumDetailScreen(
     album: MusicAlbumSummary,
     onBack: () -> Unit,
+    // 与 MeloXUnifiedPlaylistDetailScreen 同款：入口页（搜索页等）若要把结果卡片
+    // 封面一镜到底接到详情 hero，就把自己顶层的 SharedTransitionLayout 作用域与
+    // 配对 key 传进来；不传则维持「自建作用域 + 淡入」。
+    sharedTransitionScope: SharedTransitionScope? = null,
+    animatedVisibilityScope: AnimatedVisibilityScope? = null,
+    artworkSharedKey: String? = null,
 ) {
     val legacyId = remember(album.id) {
         album.id.toString().hashCode().toLong().let { value -> if (value >= 0L) -value - 1L else value }
@@ -1540,17 +1567,31 @@ internal fun MeloXUnifiedProviderAlbumDetailScreen(
     val client = remember(context) {
         NeteaseLibraryClient(cookieProvider = { NeteaseSessionStore.readCookie(context) })
     }
-    SharedTransitionLayout(Modifier.fillMaxSize()) {
-        AnimatedVisibility(visible = true) {
-            MeloXPlaylistDetailScreen(
-                initialPlaylist = placeholder,
-                client = client,
-                onBack = onBack,
-                sharedTransitionScope = this@SharedTransitionLayout,
-                animatedVisibilityScope = this,
-                onModalVisibilityChanged = {},
-                providerAlbum = album,
-            )
+    if (sharedTransitionScope != null && animatedVisibilityScope != null) {
+        MeloXPlaylistDetailScreen(
+            initialPlaylist = placeholder,
+            client = client,
+            onBack = onBack,
+            sharedTransitionScope = sharedTransitionScope,
+            animatedVisibilityScope = animatedVisibilityScope,
+            onModalVisibilityChanged = {},
+            providerAlbum = album,
+            artworkSharedKey = artworkSharedKey,
+        )
+    } else {
+        SharedTransitionLayout(Modifier.fillMaxSize()) {
+            AnimatedVisibility(visible = true) {
+                MeloXPlaylistDetailScreen(
+                    initialPlaylist = placeholder,
+                    client = client,
+                    onBack = onBack,
+                    sharedTransitionScope = this@SharedTransitionLayout,
+                    animatedVisibilityScope = this,
+                    onModalVisibilityChanged = {},
+                    providerAlbum = album,
+                    artworkSharedKey = artworkSharedKey,
+                )
+            }
         }
     }
 }
@@ -1568,6 +1609,9 @@ private fun MeloXPlaylistDetailScreen(
     albumId: Long? = null,
     providerAlbum: MusicAlbumSummary? = null,
     providedSongs: List<SearchSong>? = null,
+    // 由入口页（首页/发现页/搜索）指定的共享元素 key，用于把列表卡片
+    // 的封面一镜到底地 morph 到详情 hero。null 时退回本页默认 key。
+    artworkSharedKey: String? = null,
 ) {
     val context = LocalContext.current
     val detailWindow = rememberMeloXWindowInfo()
@@ -1878,6 +1922,7 @@ private fun MeloXPlaylistDetailScreen(
                         },
                         sharedTransitionScope = sharedTransitionScope,
                         animatedVisibilityScope = animatedVisibilityScope,
+                        artworkSharedKey = artworkSharedKey ?: playlistArtworkSharedKey(displayed.id),
                     )
                 }
 
@@ -2172,6 +2217,10 @@ private fun MeloXStandardPlaylistHero(
     onToggleSaved: () -> Unit,
     sharedTransitionScope: SharedTransitionScope,
     animatedVisibilityScope: AnimatedVisibilityScope,
+    // 调用方可覆盖共享元素 key：首页/发现页的卡片与这里配对的 key
+    // 必须带 collection 前缀，否则同一首页里两个 block 含同一歌单时
+    // 同一作用域内会出现重复 key。
+    artworkSharedKey: String = playlistArtworkSharedKey(playlist.id),
 ) {
     BoxWithConstraints(modifier = Modifier.fillMaxWidth()) {
         val artworkSize = minOf(maxWidth * 0.68f, 300.dp)
@@ -2185,7 +2234,7 @@ private fun MeloXStandardPlaylistHero(
             val sharedArtworkModifier = with(sharedTransitionScope) {
                 Modifier.sharedElement(
                     sharedContentState = rememberSharedContentState(
-                        key = playlistArtworkSharedKey(playlist.id),
+                        key = artworkSharedKey,
                     ),
                     animatedVisibilityScope = animatedVisibilityScope,
                     renderInOverlayDuringTransition = true,
@@ -2193,11 +2242,12 @@ private fun MeloXStandardPlaylistHero(
                 )
             }
 
-            AsyncImage(
-                model = playlist.coverUrl,
-                contentDescription = null,
-                contentScale = ContentScale.Crop,
-                modifier = sharedArtworkModifier
+            // 阴影必须留在 sharedElement 修饰链之外。写在 sharedElement 之后的
+            // elevation 会被当作元素内容一起画进过渡 overlay，返回时在封面四周
+            // 留下一圈黑色投影（浅色背景上混成暗框）。外层 Box 承担阴影，
+            // 静态观感不变，共享元素只剩图片本身。
+            Box(
+                modifier = Modifier
                     .size(artworkSize)
                     .shadow(
                         elevation = 18.dp,
@@ -2205,9 +2255,17 @@ private fun MeloXStandardPlaylistHero(
                         clip = false,
                         ambientColor = Color.Black.copy(alpha = 0.18f),
                         spotColor = Color.Black.copy(alpha = 0.18f),
-                    )
-                    .clip(RoundedCornerShape(12.dp)),
-            )
+                    ),
+            ) {
+                AsyncImage(
+                    model = playlist.coverUrl,
+                    contentDescription = null,
+                    contentScale = ContentScale.Crop,
+                    modifier = sharedArtworkModifier
+                        .fillMaxSize()
+                        .clip(RoundedCornerShape(12.dp)),
+                )
+            }
 
             Text(
                 text = playlist.name,
