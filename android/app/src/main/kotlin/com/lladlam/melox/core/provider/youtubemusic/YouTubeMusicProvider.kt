@@ -2,6 +2,8 @@ package com.lladlam.melox.core.provider.youtubemusic
 
 import android.content.Context
 import android.net.Uri
+import com.lladlam.melox.core.lyrics.LrcLibLyricsClient
+import com.lladlam.melox.core.lyrics.LyricsDocument
 import com.lladlam.melox.core.music.model.AudioQualityTier
 import com.lladlam.melox.core.music.model.MusicAccountSummary
 import com.lladlam.melox.core.music.model.MusicAlbumDetail
@@ -10,6 +12,7 @@ import com.lladlam.melox.core.music.model.MusicAlbumSummary
 import com.lladlam.melox.core.music.model.MusicArtistDetail
 import com.lladlam.melox.core.music.model.MusicArtistRef
 import com.lladlam.melox.core.music.model.MusicArtistSummary
+import com.lladlam.melox.core.music.model.MusicHomeFeed
 import com.lladlam.melox.core.music.model.MusicPage
 import com.lladlam.melox.core.music.model.MusicPlaylistDetail
 import com.lladlam.melox.core.music.model.MusicPlaylistSummary
@@ -22,6 +25,8 @@ import com.lladlam.melox.core.music.provider.AlbumCapability
 import com.lladlam.melox.core.music.provider.ArtistCapability
 import com.lladlam.melox.core.music.provider.CatalogSearchCapability
 import com.lladlam.melox.core.music.provider.DownloadCapability
+import com.lladlam.melox.core.music.provider.HomeFeedCapability
+import com.lladlam.melox.core.music.provider.LyricsCapability
 import com.lladlam.melox.core.music.provider.MusicCapability
 import com.lladlam.melox.core.music.provider.MusicProvider
 import com.lladlam.melox.core.music.provider.PlaybackCapability
@@ -37,6 +42,7 @@ import com.metrolist.innertube.models.PlaylistItem
 import com.metrolist.innertube.models.SongItem
 import com.metrolist.innertube.models.YouTubeClient
 import com.metrolist.innertube.models.YTItem
+import com.metrolist.innertube.pages.HomePage
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import org.schabi.newpipe.extractor.NewPipe
@@ -56,7 +62,7 @@ class YouTubeMusicProvider(
     private val httpClient: okhttp3.OkHttpClient = com.lladlam.melox.core.network.MeloXHttpClient.shared,
 ) : MusicProvider, SearchCapability, CatalogSearchCapability, PlaybackCapability,
     DownloadCapability, UserLibraryCapability, PlaylistCapability, PlaylistWriteCapability,
-    AlbumCapability, ArtistCapability {
+    AlbumCapability, ArtistCapability, HomeFeedCapability, LyricsCapability {
     private val appContext = context.applicationContext
     private val session: YouTubeSession
         get() = YouTubeSessionStore.read(appContext)
@@ -70,13 +76,16 @@ class YouTubeMusicProvider(
     override val capabilities = setOf(
         MusicCapability.Search,
         MusicCapability.Playback,
+        MusicCapability.Lyrics,
         MusicCapability.Library,
         MusicCapability.Playlists,
         MusicCapability.Albums,
         MusicCapability.Artists,
+        MusicCapability.HomeRecommendations,
     )
 
     private val newPipeInitialised = AtomicBoolean(false)
+    private val lyricsClient = LrcLibLyricsClient(httpClient)
 
     override suspend fun searchSongs(query: String, page: Int, pageSize: Int): MusicPage<MusicTrack> =
         search(query, page, pageSize, YouTube.SearchFilter.FILTER_SONG) { item -> (item as? SongItem)?.toMusicTrack() }
@@ -108,7 +117,11 @@ class YouTubeMusicProvider(
         withContext(Dispatchers.IO) {
             if (page > 1 || !session.isLoggedIn) return@withContext MusicPage(emptyList(), page, pageSize, 0)
             YouTubeSessionStore.apply(appContext)
-            val items = YouTube.library(LIKED_PLAYLISTS_BROWSE_ID).getOrThrow().items
+            val liked = MusicPlaylistSummary(
+                id = MusicResourceId(source, LIKED_SONGS_PLAYLIST_ID),
+                title = "Liked songs",
+            )
+            val items = listOf(liked) + YouTube.library(LIKED_PLAYLISTS_BROWSE_ID).getOrThrow().items
                 .filterIsInstance<PlaylistItem>().map { it.toPlaylistSummary() }
             MusicPage(items, page, pageSize, items.size.toLong(), false)
         }
@@ -155,6 +168,38 @@ class YouTubeMusicProvider(
         val result = YouTube.artist(artist.id.value).getOrThrow()
         val tracks = result.sections.flatMap { it.items }.filterIsInstance<SongItem>().map { it.toMusicTrack() }
         MusicArtistDetail(result.artist.toArtistSummary(), tracks, tracks.size.toLong())
+    }
+
+    /**
+     * YouTube Music's own home, folded into the three shelves the home screen draws.
+     *
+     * Playlists and albums become the collection row, songs become the track row.
+     * Charts stay out: the home screen only draws a ranking when the provider also
+     * implements [com.lladlam.melox.core.music.provider.RankingCapability], which this one does not.
+     */
+    override suspend fun homeFeed(
+        playlistLimit: Int,
+        newSongLimit: Int,
+        rankingLimit: Int,
+    ): MusicHomeFeed = withContext(Dispatchers.IO) {
+        YouTubeSessionStore.apply(appContext)
+        val sections = YouTube.home().getOrThrow().sections
+        val playlists = mutableListOf<MusicPlaylistSummary>()
+        val songs = mutableListOf<MusicTrack>()
+        sections.forEach { section -> section.collect(playlists, songs) }
+        MusicHomeFeed(
+            recommendedPlaylists = playlists.distinctBy { it.id }.take(playlistLimit.coerceAtLeast(0)),
+            newSongs = songs.distinctBy { it.id }.take(newSongLimit.coerceAtLeast(0)),
+        )
+    }
+
+    override suspend fun lyrics(track: MusicTrack): LyricsDocument {
+        require(track.id.source == source)
+        return lyricsClient.lyrics(
+            title = track.title,
+            artist = track.artists.firstOrNull()?.name.orEmpty(),
+            durationMs = track.durationMs ?: 0L,
+        )
     }
 
     override suspend fun resolvePlayback(track: MusicTrack, quality: AudioQualityTier): PlaybackResolution {
@@ -237,6 +282,25 @@ class YouTubeMusicProvider(
         artworkUrl = thumbnail,
     )
 
+    private fun HomePage.Section.collect(
+        playlists: MutableList<MusicPlaylistSummary>,
+        songs: MutableList<MusicTrack>,
+    ) {
+        items.forEach { item ->
+            when (item) {
+                is SongItem -> songs += item.toMusicTrack()
+                is PlaylistItem -> playlists += item.toPlaylistSummary()
+                is AlbumItem -> playlists += MusicPlaylistSummary(
+                    id = MusicResourceId(source, item.playlistId),
+                    title = item.title,
+                    artworkUrl = item.thumbnail,
+                    creatorName = item.artists?.joinToString(", ") { it.name },
+                )
+                else -> Unit
+            }
+        }
+    }
+
     private fun Artist.toArtistSummary() = MusicArtistSummary(
         id = MusicResourceId(source, id ?: name),
         name = name,
@@ -244,6 +308,8 @@ class YouTubeMusicProvider(
 
     companion object {
         private const val LIKED_PLAYLISTS_BROWSE_ID = "FEmusic_liked_playlists"
+        /** YouTube Music's own liked-songs playlist. `YouTube.playlist` reads it by this id. */
+        private const val LIKED_SONGS_PLAYLIST_ID = "LM"
         private const val STREAM_URL_TTL_MS = 90 * 60 * 1_000L
     }
 }

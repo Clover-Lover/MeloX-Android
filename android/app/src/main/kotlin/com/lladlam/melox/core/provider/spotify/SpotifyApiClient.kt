@@ -152,8 +152,15 @@ class SpotifyApiClient(
 
     suspend fun userPlaylists(page: Int, pageSize: Int): MusicPage<MusicPlaylistSummary> = withContext(Dispatchers.IO) {
         val result = pageItems("me/playlists", page, pageSize, SpotifyJsonMapper::playlist)
-        MusicPage(result.items, page.coerceAtLeast(1), pageSize.coerceAtLeast(1), result.total)
+        val items = if (page.coerceAtLeast(1) == 1) listOf(likedSongsPlaylist()) + result.items else result.items
+        MusicPage(items, page.coerceAtLeast(1), pageSize.coerceAtLeast(1), result.total?.plus(1))
     }
+
+    /** The account's saved tracks, which the Web API keeps off the playlist list. */
+    private fun likedSongsPlaylist() = MusicPlaylistSummary(
+        id = MusicResourceId(MusicSource.Spotify, LikedSongsPlaylistId),
+        title = "Liked songs",
+    )
 
     suspend fun writablePlaylists(page: Int, pageSize: Int): MusicPage<MusicPlaylistSummary> = withContext(Dispatchers.IO) {
         val accountId = accountSummary().id
@@ -179,6 +186,10 @@ class SpotifyApiClient(
         page: Int,
         pageSize: Int,
     ): MusicPlaylistDetail = withContext(Dispatchers.IO) {
+        if (playlist.id.value == LikedSongsPlaylistId) {
+            val result = pageItems("me/tracks", page, pageSize, SpotifyJsonMapper::playlistItem)
+            return@withContext MusicPlaylistDetail(likedSongsPlaylist(), result.items, result.total)
+        }
         val root = get("playlists/${playlist.id.value}")
         val summary = SpotifyJsonMapper.playlist(root) ?: playlist
         val result = pageItems("playlists/${playlist.id.value}/items", page, pageSize, SpotifyJsonMapper::playlistItem)
@@ -352,6 +363,7 @@ class SpotifyApiClient(
 
     private companion object {
         const val ApiBase = "https://api.spotify.com/v1/"
+        const val LikedSongsPlaylistId = "liked-songs"
         const val MaximumSearchLimit = 10
         const val MaximumSearchOffset = 1_000
         val JsonMediaType = "application/json; charset=utf-8".toMediaType()

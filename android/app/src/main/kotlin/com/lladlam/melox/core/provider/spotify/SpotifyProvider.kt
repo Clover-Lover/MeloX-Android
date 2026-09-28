@@ -1,6 +1,8 @@
 package com.lladlam.melox.core.provider.spotify
 
 import android.content.Context
+import com.lladlam.melox.core.lyrics.LrcLibLyricsClient
+import com.lladlam.melox.core.lyrics.LyricsDocument
 import com.lladlam.melox.core.music.model.AudioQualityTier
 import com.lladlam.melox.core.music.model.MusicAccountSummary
 import com.lladlam.melox.core.music.model.MusicAlbumDetail
@@ -18,6 +20,7 @@ import com.lladlam.melox.core.music.provider.ArtistCapability
 import com.lladlam.melox.core.music.provider.CatalogSearchCapability
 import com.lladlam.melox.core.music.provider.DownloadCapability
 import com.lladlam.melox.core.music.provider.FavoriteCapability
+import com.lladlam.melox.core.music.provider.LyricsCapability
 import com.lladlam.melox.core.music.provider.MusicCapability
 import com.lladlam.melox.core.music.provider.MusicProvider
 import com.lladlam.melox.core.music.provider.PlaybackCapability
@@ -43,10 +46,11 @@ class SpotifyProvider(
     private val playbackProviders: () -> List<MusicProvider>,
 ) : MusicProvider, SearchCapability, CatalogSearchCapability, PlaybackCapability, DownloadCapability,
     FavoriteCapability, UserLibraryCapability, PlaylistCapability, PlaylistWriteCapability,
-    AlbumCapability, ArtistCapability {
+    AlbumCapability, ArtistCapability, LyricsCapability {
     private val appContext = context.applicationContext
     private val api = SpotifyApiClient(context, clientId, httpClient)
     private val librespot = SpotifyLibrespotPlayback(appContext, clientId)
+    private val lyricsClient = LrcLibLyricsClient(httpClient)
     private val oauth = SpotifyOAuth(appContext, clientId, httpClient)
 
     override val source = MusicSource.Spotify
@@ -54,6 +58,7 @@ class SpotifyProvider(
     override val capabilities = setOf(
         MusicCapability.Search,
         MusicCapability.Playback,
+        MusicCapability.Lyrics,
         MusicCapability.Library,
         MusicCapability.Playlists,
         MusicCapability.PlaylistWrite,
@@ -75,6 +80,15 @@ class SpotifyProvider(
         api.albumDetail(album, page, pageSize)
     override suspend fun artistDetail(artist: MusicArtistSummary, page: Int, pageSize: Int): MusicArtistDetail =
         api.artistDetail(artist, page, pageSize)
+    override suspend fun lyrics(track: MusicTrack): LyricsDocument {
+        require(track.id.source == source)
+        return lyricsClient.lyrics(
+            title = track.title,
+            artist = track.artists.firstOrNull()?.name.orEmpty(),
+            durationMs = track.durationMs ?: 0L,
+        )
+    }
+
     override suspend fun setFavorite(track: MusicTrack, favorite: Boolean) = api.setFavorite(track, favorite)
     override suspend fun addTrackToPlaylist(track: MusicTrack, playlist: MusicPlaylistSummary) =
         api.addTrackToPlaylist(track, playlist)
