@@ -29,6 +29,13 @@ object MeloXLyricScriptConverter {
         runCatching { Transliterator.getInstance("Simplified-Traditional") }.getOrNull()
     }
 
+    fun convertText(value: String, script: MeloXLyricScript): String {
+        if (script == MeloXLyricScript.Original || Build.VERSION.SDK_INT < 29) return value
+        val converter = (if (script == MeloXLyricScript.Simplified) toSimplified else toTraditional)
+            ?: return value
+        return converter.transliterate(value)
+    }
+
     fun convert(document: LyricsDocument, script: MeloXLyricScript): LyricsDocument {
         if (script == MeloXLyricScript.Original || Build.VERSION.SDK_INT < 29) return document
         val converter = (if (script == MeloXLyricScript.Simplified) toSimplified else toTraditional)

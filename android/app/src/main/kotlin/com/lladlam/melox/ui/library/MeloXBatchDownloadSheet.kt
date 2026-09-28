@@ -27,10 +27,12 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.lladlam.melox.R
 import com.lladlam.melox.core.audio.MusicQuality
 import com.lladlam.melox.core.audio.MusicQualityPreferences
 import com.lladlam.melox.core.download.MeloXDownloadPlaylistRef
@@ -75,16 +77,16 @@ fun MeloXBatchDownloadSheet(
         },
     ) {
         Column(Modifier.fillMaxWidth().fillMaxHeight(.88f).padding(horizontal = 18.dp, vertical = 18.dp)) {
-            Text("下载选项", color = MaterialTheme.colorScheme.onSurface.copy(alpha = .58f), fontSize = 13.sp)
-            Text("批量下载", color = MaterialTheme.colorScheme.onSurface, style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold, modifier = Modifier.padding(top = 3.dp))
+            Text(stringResource(R.string.download_options), color = MaterialTheme.colorScheme.onSurface.copy(alpha = .58f), fontSize = 13.sp)
+            Text(stringResource(R.string.download_batch), color = MaterialTheme.colorScheme.onSurface, style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold, modifier = Modifier.padding(top = 3.dp))
             Text(
-                "先选择音质，再选择要下载的歌曲。",
+                stringResource(R.string.download_batch_hint),
                 color = MaterialTheme.colorScheme.onSurface.copy(alpha = .52f),
                 modifier = Modifier.padding(top = 4.dp, bottom = 12.dp),
             )
             LazyColumn(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                 item {
-                    Text("音质", color = MaterialTheme.colorScheme.onSurface.copy(alpha = .58f), fontSize = 13.sp, modifier = Modifier.padding(start = 4.dp, bottom = 6.dp))
+                    Text(stringResource(R.string.player_quality_title), color = MaterialTheme.colorScheme.onSurface.copy(alpha = .58f), fontSize = 13.sp, modifier = Modifier.padding(start = 4.dp, bottom = 6.dp))
                     MeloXIosGroupedList(surfaceColor = MaterialTheme.colorScheme.surfaceContainerHigh) {
                         MusicQuality.entries.forEachIndexed { index, option ->
                             MeloXIosListRow(
@@ -97,9 +99,9 @@ fun MeloXBatchDownloadSheet(
                         }
                     }
                     Row(Modifier.fillMaxWidth().padding(vertical = 10.dp), horizontalArrangement = Arrangement.SpaceBetween) {
-                        Text("歌曲 · ${selectedIds.size}/${songs.size}", fontWeight = FontWeight.SemiBold)
+                        Text(stringResource(R.string.download_song_progress, selectedIds.size, songs.size), fontWeight = FontWeight.SemiBold)
                         Text(
-                            if (selectedIds.size == songs.size) "取消全选" else "全选",
+                            if (selectedIds.size == songs.size) stringResource(R.string.library_deselect_all) else stringResource(R.string.library_select_all),
                             color = MaterialTheme.colorScheme.primary,
                             modifier = Modifier.clickable {
                                 selectedIds = if (selectedIds.size == songs.size) emptySet() else songs.map(SearchSong::id).toSet()
@@ -124,7 +126,7 @@ fun MeloXBatchDownloadSheet(
                     onClick = onDismiss,
                     modifier = Modifier.weight(1f),
                     style = MeloXGlassButtonStyle.Bordered,
-                ) { Text("取消") }
+                ) { Text(stringResource(R.string.action_cancel)) }
                 MeloXGlassButton(
                     onClick = {
                         selectedSongs.forEach { store.start(it, quality, sourcePlaylist) }
@@ -133,7 +135,7 @@ fun MeloXBatchDownloadSheet(
                     modifier = Modifier.weight(1f),
                     enabled = selectedSongs.isNotEmpty(),
                     style = MeloXGlassButtonStyle.BorderedProminent,
-                ) { Text("下载 ${selectedSongs.size} 首") }
+                ) { Text(stringResource(R.string.download_count, selectedSongs.size)) }
             }
         }
     }

@@ -33,9 +33,11 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.lladlam.melox.R
 import com.lladlam.melox.core.account.NeteaseSessionStore
 import com.lladlam.melox.core.library.NeteaseLibraryClient
 import com.lladlam.melox.core.library.NeteasePlaylistSummary
@@ -49,11 +51,11 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
-internal enum class MeloXPlaylistSortMode(val label: String) {
-    Original("原歌单顺序"),
-    Title("歌曲名称"),
-    Artist("歌手"),
-    Album("专辑"),
+internal enum class MeloXPlaylistSortMode(val titleRes: Int) {
+    Original(R.string.playlist_sort_original),
+    Title(R.string.playlist_sort_title),
+    Artist(R.string.playlist_sort_artist),
+    Album(R.string.playlist_sort_album),
 }
 
 @Composable
@@ -102,14 +104,14 @@ internal fun MeloXPlaylistActionsOverlay(
         Column(
             Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).navigationBarsPadding().padding(horizontal = 18.dp, vertical = 18.dp),
         ) {
-            Text("歌单操作", color = MaterialTheme.colorScheme.onSurface.copy(alpha = .58f), fontSize = 13.sp)
+            Text(stringResource(R.string.playlist_actions), color = MaterialTheme.colorScheme.onSurface.copy(alpha = .58f), fontSize = 13.sp)
             Text(playlist.name, color = MaterialTheme.colorScheme.onSurface, fontSize = 20.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(top = 3.dp, bottom = 10.dp))
             message?.let { Text(it, color = MaterialTheme.colorScheme.error, fontSize = 12.sp, modifier = Modifier.padding(bottom = 6.dp)) }
             MeloXIosGroupedList(surfaceColor = MaterialTheme.colorScheme.surfaceContainerHigh) {
-                PlaylistActionRow("分享歌单", MeloXSymbol.Share, false) { sharePlaylist(context, playlist); onDismiss() }
-                PlaylistActionRow("批量下载", MeloXSymbol.Download, true) { onDismiss(); onBatchDownload() }
-                PlaylistActionRow("提前分析歌曲", MeloXSymbol.Refresh, true) { onDismiss(); onAnalyzePlaylist() }
-                PlaylistActionRow(if (subscribed == true) "取消收藏歌单" else "收藏歌单", if (subscribed == true) MeloXSymbol.Check else MeloXSymbol.Plus, true) {
+                PlaylistActionRow(stringResource(R.string.playlist_share), MeloXSymbol.Share, false) { sharePlaylist(context, playlist); onDismiss() }
+                PlaylistActionRow(stringResource(R.string.playlist_batch_download), MeloXSymbol.Download, true) { onDismiss(); onBatchDownload() }
+                PlaylistActionRow(stringResource(R.string.playlist_analyze), MeloXSymbol.Refresh, true) { onDismiss(); onAnalyzePlaylist() }
+                PlaylistActionRow(stringResource(if (subscribed == true) R.string.playlist_unsubscribe else R.string.playlist_subscribe), if (subscribed == true) MeloXSymbol.Check else MeloXSymbol.Plus, true) {
                     if (busy) return@PlaylistActionRow
                     val desired = subscribed != true
                     busy = true
@@ -120,18 +122,18 @@ internal fun MeloXPlaylistActionsOverlay(
                         busy = false
                     }
                 }
-                PlaylistActionRow("刷新", MeloXSymbol.Refresh, true) { onRefresh(); onDismiss() }
-                PlaylistActionRow("排序：${sortMode.label}", MeloXSymbol.ArrowDown, true) { sortMenuVisible = true }
+                PlaylistActionRow(stringResource(R.string.action_refresh), MeloXSymbol.Refresh, true) { onRefresh(); onDismiss() }
+                PlaylistActionRow(stringResource(R.string.playlist_sort, stringResource(sortMode.titleRes)), MeloXSymbol.ArrowDown, true) { sortMenuVisible = true }
             }
             if (busy) Row(Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
                 CircularProgressIndicator(Modifier.size(18.dp), color = MaterialTheme.colorScheme.primary, strokeWidth = 2.dp)
                 Spacer(Modifier.size(10.dp))
-                Text("正在处理", color = MaterialTheme.colorScheme.onSurface.copy(alpha = .6f))
+                Text(stringResource(R.string.playlist_working), color = MaterialTheme.colorScheme.onSurface.copy(alpha = .6f))
             }
             DropdownMenu(expanded = sortMenuVisible, onDismissRequest = { sortMenuVisible = false }) {
                 MeloXPlaylistSortMode.entries.forEach { candidate ->
                     DropdownMenuItem(
-                        text = { Text(candidate.label) },
+                        text = { Text(stringResource(candidate.titleRes)) },
                         onClick = {
                             onSortModeChanged(candidate)
                             sortMenuVisible = false
@@ -159,7 +161,7 @@ private fun sharePlaylist(context: Context, playlist: NeteasePlaylistSummary) {
         context.startActivity(
             Intent.createChooser(
                 Intent(Intent.ACTION_SEND).setType("text/plain").putExtra(Intent.EXTRA_TEXT, "${playlist.name}\nhttps://music.163.com/playlist?id=${playlist.id}"),
-                "分享歌单",
+                context.getString(R.string.library_share_playlist),
             ).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
         )
     }

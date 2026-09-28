@@ -23,9 +23,11 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.lladlam.melox.R
 import com.lladlam.melox.core.provider.applemusic.AppleMusicSessionStore
 import com.lladlam.melox.core.provider.applemusic.AppleMusicSdkBridge
 import com.lladlam.melox.ui.glass.MeloXGlassButton
@@ -46,7 +48,8 @@ fun AppleMusicLoginScreen(
     onDismiss: () -> Unit,
     onLoggedIn: () -> Unit,
 ) {
-    val context = LocalContext.current.applicationContext
+    val activityContext = LocalContext.current
+    val context = activityContext.applicationContext
     val initial = remember { AppleMusicSessionStore.read(context) }
     var developerToken by remember { mutableStateOf(initial.developerToken) }
     var musicUserToken by remember { mutableStateOf(initial.musicUserToken) }
@@ -57,7 +60,7 @@ fun AppleMusicLoginScreen(
     ) { result ->
         val token = AppleMusicSdkBridge.extractMusicUserToken(result.data)
         if (token.isNullOrBlank()) {
-            error = "Apple Music 授权未返回 Music User Token，请确认账号有订阅并重试"
+            error = activityContext.getString(R.string.account_apple_no_token)
         } else {
             AppleMusicSessionStore.write(context, developerToken, token, storefront)
             onLoggedIn()
@@ -81,12 +84,12 @@ fun AppleMusicLoginScreen(
             MeloXGlassButton(
                 onClick = onDismiss,
                 style = MeloXGlassButtonStyle.Plain,
-            ) { Text("取消", color = MeloXSystemColors.Red) }
-            Text("配置 Apple Music", fontSize = 17.sp, fontWeight = FontWeight.SemiBold)
+            ) { Text(stringResource(R.string.action_cancel), color = MeloXSystemColors.Red) }
+            Text(stringResource(R.string.account_configure_apple), fontSize = 17.sp, fontWeight = FontWeight.SemiBold)
             Spacer(Modifier.height(1.dp).weight(0.01f))
         }
         Text(
-            "使用 Apple Developer / MusicKit 生成的凭据。MeloX 只调用官方 Apple Music API，不读取 Apple Music APK 的私有登录或 DRM 凭据。",
+            stringResource(R.string.account_apple_hint),
             color = MaterialTheme.colorScheme.onBackground.copy(alpha = .62f),
             fontSize = 13.sp,
             lineHeight = 19.sp,
@@ -101,13 +104,13 @@ fun AppleMusicLoginScreen(
             value = musicUserToken,
             onValueChange = { musicUserToken = it; error = null },
             modifier = Modifier.fillMaxWidth(),
-            placeholder = { Text("Music User Token（可选）", color = Color.Gray) },
+            placeholder = { Text(stringResource(R.string.account_music_user_token), color = Color.Gray) },
         )
         MeloXGlassTextField(
             value = storefront,
             onValueChange = { storefront = it.take(8); error = null },
             modifier = Modifier.fillMaxWidth(),
-            placeholder = { Text("Storefront，例如 us / cn", color = Color.Gray) },
+            placeholder = { Text(stringResource(R.string.account_storefront), color = Color.Gray) },
         )
         error?.let { Text(it, color = MaterialTheme.colorScheme.error, fontSize = 13.sp) }
         MeloXGlassButton(
@@ -117,9 +120,9 @@ fun AppleMusicLoginScreen(
                 }
                 if (intent == null) {
                     error = if (developerToken.isBlank()) {
-                        "请先填写 Developer Token"
+                        activityContext.getString(R.string.account_developer_token_required)
                     } else {
-                        "未找到 Apple Music 官方 Android SDK，请把 musickitauth-release-*.aar 放入 app/libs 后重新编译"
+                        activityContext.getString(R.string.account_apple_sdk_missing)
                     }
                 } else {
                     officialAuthLauncher.launch(intent)
@@ -127,11 +130,11 @@ fun AppleMusicLoginScreen(
             },
             modifier = Modifier.fillMaxWidth(),
             style = MeloXGlassButtonStyle.BorderedProminent,
-        ) { Text("在 Apple Music 中登录并获取 Token") }
+        ) { Text(stringResource(R.string.account_apple_sign_in)) }
         MeloXGlassButton(
             onClick = {
                 if (developerToken.isBlank()) {
-                    error = "请先填写 Developer Token"
+                    error = activityContext.getString(R.string.account_developer_token_required)
                 } else {
                     AppleMusicSessionStore.write(context, developerToken, musicUserToken, storefront)
                     onLoggedIn()
@@ -139,7 +142,7 @@ fun AppleMusicLoginScreen(
             },
             modifier = Modifier.fillMaxWidth(),
             style = MeloXGlassButtonStyle.Bordered,
-        ) { Text("仅保存 API 配置") }
+        ) { Text(stringResource(R.string.account_save_api_only)) }
         if (initial.isConfigured) {
             MeloXGlassButton(
                 onClick = {
@@ -148,7 +151,7 @@ fun AppleMusicLoginScreen(
                 },
                 modifier = Modifier.fillMaxWidth(),
                 style = MeloXGlassButtonStyle.Destructive,
-            ) { Text("清除 Apple Music 配置") }
+            ) { Text(stringResource(R.string.account_clear_apple)) }
         }
         Spacer(Modifier.weight(1f))
         MeloXLegalLinks()

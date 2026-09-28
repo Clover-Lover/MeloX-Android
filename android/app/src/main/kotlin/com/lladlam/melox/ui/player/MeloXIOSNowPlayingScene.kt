@@ -386,7 +386,6 @@ internal fun MeloXIOSNowPlayingScene(
                             .meloXBackdropBlur(
                                 shape = RectangleShape,
                                 blurRadius = 24.dp,
-                                surfaceColor = Color.Black.copy(alpha = .08f),
                             )
                             // Consume blank-area taps so they cannot fall
                             // through the lower lyric control surface.

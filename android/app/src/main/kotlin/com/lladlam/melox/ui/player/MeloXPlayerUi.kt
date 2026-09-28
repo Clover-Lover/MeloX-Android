@@ -66,7 +66,9 @@ import androidx.media3.common.MediaMetadata
 import androidx.media3.common.Player
 import androidx.media3.session.MediaController
 import androidx.media3.session.SessionToken
+import androidx.compose.ui.res.stringResource
 import coil3.compose.AsyncImage
+import com.lladlam.melox.R
 import com.lladlam.melox.playback.MeloXPlaybackService
 import com.lladlam.melox.core.recommendation.LocalRecommendationEngine
 import com.lladlam.melox.core.recommendation.LocalRecommendationStore
@@ -192,9 +194,9 @@ class MeloXPlaybackUiState internal constructor(private val appContext: Context)
 
     val repeatModeTitle: String
         get() = when (repeatMode) {
-            Player.REPEAT_MODE_ALL -> "列表循环"
-            Player.REPEAT_MODE_ONE -> "单曲循环"
-            else -> "循环关闭"
+            Player.REPEAT_MODE_ALL -> appContext.getString(R.string.player_repeat_all)
+            Player.REPEAT_MODE_ONE -> appContext.getString(R.string.player_repeat_one)
+            else -> appContext.getString(R.string.player_repeat_off)
         }
 
     private val listener = object : Player.Listener {
@@ -344,7 +346,7 @@ class MeloXPlaybackUiState internal constructor(private val appContext: Context)
         val record = com.lladlam.melox.core.provider.local.LocalMusicRepository(appContext)
             .track(identity.value) ?: return
         val title = record.recognizedTitle ?: record.title.ifBlank { record.displayName }
-        val artist = record.recognizedArtist ?: record.artist.ifBlank { "未知歌手" }
+        val artist = record.recognizedArtist ?: record.artist.ifBlank { appContext.getString(R.string.player_unknown_artist) }
         val album = record.recognizedAlbum ?: record.album
         val artwork = record.recognizedArtworkUrl ?: record.artworkUri
         val metadata = item.mediaMetadata.buildUpon()
@@ -438,7 +440,7 @@ class MeloXPlaybackUiState internal constructor(private val appContext: Context)
                 entryId = entryId,
                 mediaId = item.mediaId,
                 title = metadata.extras?.getString("melox.system.original_title")
-                    ?: metadata.title?.toString().orEmpty().ifBlank { "未知歌曲" },
+                    ?: metadata.title?.toString().orEmpty().ifBlank { appContext.getString(R.string.player_unknown_song) },
                 artist = metadata.extras?.getString("melox.system.original_artist")
                     ?: metadata.artist?.toString().orEmpty(),
                 artworkUrl = item.mediaId.toLongOrNull()?.let(downloadStore::localArtworkUri)?.toString()
@@ -784,7 +786,7 @@ fun MeloXMiniPlayer(
 
             Column(modifier = Modifier.weight(1f)) {
                 Text(
-                    text = state.title.ifBlank { "正在播放" },
+                    text = state.title.ifBlank { stringResource(R.string.player_now_playing) },
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                     style = MaterialTheme.typography.titleSmall,
@@ -965,7 +967,7 @@ private fun MeloXArtworkPage(state: MeloXPlaybackUiState) {
 
         Column(modifier = Modifier.fillMaxWidth()) {
             Text(
-                text = state.title.ifBlank { "正在播放" },
+                text = state.title.ifBlank { stringResource(R.string.player_now_playing) },
                 color = Color.White,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
@@ -1060,7 +1062,7 @@ private fun MeloXProgressControl(state: MeloXPlaybackUiState) {
                     .padding(horizontal = 9.dp, vertical = 4.dp),
             ) {
                 Text(
-                    text = "标准",
+                    text = stringResource(R.string.player_quality_standard),
                     color = Color.White.copy(alpha = 0.86f),
                     fontSize = 11.sp,
                     fontWeight = FontWeight.Medium,
@@ -1263,7 +1265,7 @@ internal fun Artwork(
         if (model != null && (model !is String || model.isNotBlank())) {
             AsyncImage(
                 model = model,
-                contentDescription = "专辑封面",
+                contentDescription = stringResource(R.string.player_artwork),
                 modifier = Modifier.fillMaxSize(),
                 contentScale = ContentScale.Crop,
             )
@@ -1273,7 +1275,7 @@ internal fun Artwork(
                 modifier = Modifier.size(44.dp),
                 color = Color.White.copy(alpha = 0.24f),
                 iconSize = 42.sp,
-                contentDescription = "默认专辑封面",
+                contentDescription = stringResource(R.string.player_artwork_default),
             )
         }
     }

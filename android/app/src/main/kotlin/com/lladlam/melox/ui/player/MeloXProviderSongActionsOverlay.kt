@@ -44,11 +44,13 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil3.compose.AsyncImage
+import com.lladlam.melox.R
 import com.lladlam.melox.core.music.model.MusicArtistRef
 import com.lladlam.melox.core.music.model.MusicPlaylistSummary
 import com.lladlam.melox.core.music.model.MusicResourceId
@@ -176,9 +178,9 @@ internal fun MeloXProviderSongActionsOverlay(
                         ProviderActionHeader(
                             state = state,
                             subtitle = when (target) {
-                                ProviderSongActionPage.Main -> "${identity.source.displayName} · 歌曲操作"
-                                ProviderSongActionPage.Sleep -> "定时关闭"
-                                ProviderSongActionPage.Playlists -> "选择目标歌单"
+                                ProviderSongActionPage.Main -> stringResource(R.string.player_source_actions, identity.source.displayName)
+                                ProviderSongActionPage.Sleep -> stringResource(R.string.player_sleep_timer)
+                                ProviderSongActionPage.Playlists -> stringResource(R.string.player_choose_playlist)
                             },
                         )
 
@@ -187,7 +189,7 @@ internal fun MeloXProviderSongActionsOverlay(
                             ProviderSongActionPage.Main -> {
                                 if (identity.source == MusicSource.Local) {
                                     ProviderActionItem(
-                                        title = if (recognitionWorking) "正在识别本地歌曲…" else "识别并补全封面、歌手和歌词",
+                                        title = if (recognitionWorking) stringResource(R.string.player_recognizing) else stringResource(R.string.player_recognize),
                                         symbol = "⌁",
                                         enabled = !recognitionWorking,
                                     ) {
@@ -199,11 +201,11 @@ internal fun MeloXProviderSongActionsOverlay(
                                                 LocalRecognitionCoordinator(context).recognize(identity.value)
                                             }.onSuccess { outcome ->
                                                 actionStatus = outcome.matched?.let {
-                                                    "已匹配：${it.name} · ${it.artists}"
-                                                } ?: "未找到匹配歌曲，已保留本地信息"
+                                                    context.getString(R.string.player_matched, it.name, it.artists)
+                                                } ?: context.getString(R.string.player_no_match)
                                                 onLocalMetadataChanged()
                                             }.onFailure {
-                                                actionError = it.message ?: "本地歌曲识别失败"
+                                                actionError = it.message ?: context.getString(R.string.player_recognize_failed)
                                             }
                                             recognitionWorking = false
                                         }
@@ -212,10 +214,10 @@ internal fun MeloXProviderSongActionsOverlay(
                                 if (favoriteCapability != null) {
                                     ProviderActionItem(
                                         title = when {
-                                            !providerLoggedIn -> "登录 ${identity.source.displayName} 后可使用我喜欢"
-                                            favoriteWorking -> "正在更新我喜欢…"
-                                            favoriteKnownState == true -> "从我喜欢移除"
-                                            else -> "添加到我喜欢"
+                                            !providerLoggedIn -> stringResource(R.string.player_login_for_favorites, identity.source.displayName)
+                                            favoriteWorking -> stringResource(R.string.player_updating_favorites)
+                                            favoriteKnownState == true -> stringResource(R.string.player_remove_favorite)
+                                            else -> stringResource(R.string.player_add_favorite)
                                         },
                                         symbol = if (favoriteKnownState == true) "♥" else "♡",
                                         enabled = providerLoggedIn && !favoriteWorking,
@@ -230,12 +232,12 @@ internal fun MeloXProviderSongActionsOverlay(
                                             }.onSuccess {
                                                 favoriteKnownState = targetFavorite
                                                 actionStatus = if (targetFavorite) {
-                                                    "已添加到 ${identity.source.displayName} 我喜欢"
+                                                    context.getString(R.string.player_added_favorite, identity.source.displayName)
                                                 } else {
-                                                    "已从 ${identity.source.displayName} 我喜欢移除"
+                                                    context.getString(R.string.player_removed_favorite, identity.source.displayName)
                                                 }
                                             }.onFailure { failure ->
-                                                actionError = failure.message ?: "我喜欢操作失败"
+                                                actionError = failure.message ?: context.getString(R.string.player_favorite_failed)
                                             }
                                             favoriteWorking = false
                                         }
@@ -245,21 +247,21 @@ internal fun MeloXProviderSongActionsOverlay(
                                 if (downloadCapability != null) {
                                     ProviderActionItem(
                                         title = when {
-                                            downloaded -> "已下载到本机"
-                                            downloading -> "正在下载…"
-                                            else -> "下载到本机"
+                                            downloaded -> stringResource(R.string.player_downloaded_local)
+                                            downloading -> stringResource(R.string.player_downloading)
+                                            else -> stringResource(R.string.player_download_local)
                                         },
                                         symbol = if (downloaded) "✓" else "↓",
                                         enabled = !downloaded && !downloading,
                                     ) {
                                         downloadStore.start(actionTrack)
-                                        actionStatus = "已加入 ${identity.source.displayName} 下载队列"
+                                        actionStatus = context.getString(R.string.player_download_queued, identity.source.displayName)
                                     }
                                 }
 
                                 if (playlistWriteCapability != null) {
                                     ProviderActionItem(
-                                        title = if (providerLoggedIn) "添加到歌单" else "登录 ${identity.source.displayName} 后可添加到歌单",
+                                        title = if (providerLoggedIn) stringResource(R.string.player_add_to_playlist) else stringResource(R.string.player_login_for_playlist, identity.source.displayName),
                                         symbol = "＋",
                                         enabled = providerLoggedIn && !playlistsLoading,
                                     ) {
@@ -274,27 +276,27 @@ internal fun MeloXProviderSongActionsOverlay(
                                                 }
                                             }.onSuccess { playlists ->
                                                 writablePlaylists = playlists
-                                                if (playlists.isEmpty()) actionError = "没有返回可写入的用户歌单"
+                                                if (playlists.isEmpty()) actionError = context.getString(R.string.player_no_user_playlists)
                                             }.onFailure { failure ->
                                                 writablePlaylists = emptyList()
-                                                actionError = failure.message ?: "无法加载可写歌单"
+                                                actionError = failure.message ?: context.getString(R.string.player_writable_playlists_failed)
                                             }
                                             playlistsLoading = false
                                         }
                                     }
                                 }
 
-                                ProviderActionItem("定时关闭", "◷") { page = ProviderSongActionPage.Sleep }
-                                ProviderActionItem("添加到播放队列", "+") {
+                                ProviderActionItem(stringResource(R.string.player_sleep_timer), "◷") { page = ProviderSongActionPage.Sleep }
+                                ProviderActionItem(stringResource(R.string.player_add_to_queue), "+") {
                                     state.addCurrentToQueue()
                                     onDismiss()
                                 }
-                                ProviderActionItem("系统分享", "↗") {
+                                ProviderActionItem(stringResource(R.string.player_system_share), "↗") {
                                     shareProviderSong(context, state, identity)
                                     onDismiss()
                                 }
                                 if (identity.source != MusicSource.Bilibili && state.album.isNotBlank() && onNavigateSearch != null) {
-                                    ProviderActionItem("前往专辑：${state.album}", "▣") {
+                                    ProviderActionItem(stringResource(R.string.player_go_album, state.album), "▣") {
                                         val target = state.album
                                         MeloXSearchLaunchBus.post(target, MeloXSearchKind.Albums)
                                         onDismiss()
@@ -302,7 +304,7 @@ internal fun MeloXProviderSongActionsOverlay(
                                     }
                                 }
                                 if (identity.source != MusicSource.Bilibili && state.artist.isNotBlank() && onNavigateSearch != null) {
-                                    ProviderActionItem("前往艺人：${state.artist}", "♬") {
+                                    ProviderActionItem(stringResource(R.string.player_go_artist, state.artist), "♬") {
                                         val target = state.artist.substringBefore(" /")
                                         MeloXSearchLaunchBus.post(target, MeloXSearchKind.Artists)
                                         onDismiss()
@@ -314,24 +316,24 @@ internal fun MeloXProviderSongActionsOverlay(
 
                             ProviderSongActionPage.Sleep -> {
                                 listOf(15, 30, 45, 60).forEach { minutes ->
-                                    ProviderActionItem("$minutes 分钟后", "◷") {
+                                    ProviderActionItem(stringResource(R.string.player_sleep_minutes, minutes), "◷") {
                                         state.setSleepTimer(minutes)
                                         onDismiss()
                                     }
                                 }
                                 if (state.sleepTimerEndRealtimeMs > 0L) {
-                                    ProviderActionItem("取消定时", "×") {
+                                    ProviderActionItem(stringResource(R.string.player_cancel_sleep), "×") {
                                         state.cancelSleepTimer()
                                         onDismiss()
                                     }
                                 }
-                                ProviderActionItem("返回", "‹") { page = ProviderSongActionPage.Main }
+                                ProviderActionItem(stringResource(R.string.player_back), "‹") { page = ProviderSongActionPage.Main }
                             }
 
                             ProviderSongActionPage.Playlists -> {
                                 when {
-                                    playlistsLoading -> ProviderActionItem("正在加载可写歌单…", "…", enabled = false) {}
-                                    writablePlaylists.isEmpty() -> ProviderActionItem("没有可写歌单", "—", enabled = false) {}
+                                    playlistsLoading -> ProviderActionItem(stringResource(R.string.player_loading_writable), "…", enabled = false) {}
+                                    writablePlaylists.isEmpty() -> ProviderActionItem(stringResource(R.string.player_no_writable), "—", enabled = false) {}
                                     else -> writablePlaylists.forEach { playlist ->
                                         ProviderActionItem(
                                             title = playlist.title,
@@ -346,17 +348,17 @@ internal fun MeloXProviderSongActionsOverlay(
                                                 runCatching {
                                                     capability.addTrackToPlaylist(actionTrack, playlist)
                                                 }.onSuccess {
-                                                    actionStatus = "已添加到歌单「${playlist.title}」"
+                                                    actionStatus = context.getString(R.string.player_added_to_playlist, playlist.title)
                                                     page = ProviderSongActionPage.Main
                                                 }.onFailure { failure ->
-                                                    actionError = failure.message ?: "添加到歌单失败"
+                                                    actionError = failure.message ?: context.getString(R.string.player_add_playlist_failed)
                                                 }
                                                 playlistWriteWorking = false
                                             }
                                         }
                                     }
                                 }
-                                ProviderActionItem("返回", "‹") { page = ProviderSongActionPage.Main }
+                                ProviderActionItem(stringResource(R.string.player_back), "‹") { page = ProviderSongActionPage.Main }
                             }
                         }
                         }
@@ -367,12 +369,12 @@ internal fun MeloXProviderSongActionsOverlay(
                             }
                             Column(Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 12.dp)) {
                                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                                    Text("歌词调试延迟", fontWeight = FontWeight.SemiBold)
+                                    Text(stringResource(R.string.player_lyric_offset), fontWeight = FontWeight.SemiBold)
                                     Text(
                                         when {
-                                            displayedOffset == 0 -> "同步"
-                                            displayedOffset > 0 -> "+${displayedOffset} ms · 歌词提前"
-                                            else -> "$displayedOffset ms · 歌词延后"
+                                            displayedOffset == 0 -> stringResource(R.string.player_lyric_sync)
+                                            displayedOffset > 0 -> stringResource(R.string.player_lyric_ahead, displayedOffset)
+                                            else -> stringResource(R.string.player_lyric_behind, displayedOffset)
                                         },
                                         color = MaterialTheme.colorScheme.onSurface.copy(alpha = .62f),
                                         fontSize = 12.sp,
@@ -390,7 +392,7 @@ internal fun MeloXProviderSongActionsOverlay(
                                     valueRange = -5_000f..5_000f,
                                     stepSize = 100f,
                                     visibilityThreshold = 1f,
-                                    contentDescription = "歌词调试延迟",
+                                    contentDescription = stringResource(R.string.player_lyric_offset),
                                 )
                             }
                         }
@@ -442,7 +444,7 @@ private fun ProviderActionHeader(
         )
         Column(Modifier.weight(1f).padding(start = 12.dp)) {
             Text(
-                state.title.ifBlank { "正在播放" },
+                state.title.ifBlank { stringResource(R.string.player_now_playing) },
                 color = foreground,
                 fontSize = 17.sp,
                 fontWeight = FontWeight.Bold,
@@ -509,7 +511,7 @@ private fun shareProviderSong(
         MusicSource.Local -> null
     }
     val text = buildString {
-        append(state.title.ifBlank { "正在播放" })
+        append(state.title.ifBlank { context.getString(R.string.player_now_playing) })
         if (state.artist.isNotBlank()) append(" · ").append(state.artist)
         providerUrl?.let { append('\n').append(it) }
     }
@@ -519,7 +521,7 @@ private fun shareProviderSong(
             putExtra(Intent.EXTRA_TEXT, text)
             addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
         },
-        "分享歌曲",
+        context.getString(R.string.player_share_song),
     ).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
     context.startActivity(intent)
 }

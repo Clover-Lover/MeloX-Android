@@ -45,7 +45,9 @@ import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.role
@@ -57,6 +59,7 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.lladlam.melox.R
 import com.lladlam.melox.ui.glass.MeloXSymbol
 import com.lladlam.melox.ui.glass.MeloXSymbolIcon
 import com.lladlam.melox.ui.legal.MeloXLegalLinks
@@ -96,6 +99,9 @@ fun MeloXPhoneCodeLoginScreen(
     var loading by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf<String?>(null) }
     var resendSeconds by remember { mutableIntStateOf(0) }
+    val context = LocalContext.current
+    val continueLoginDescription = stringResource(R.string.account_continue_login, serviceName)
+    val closeLoginDescription = stringResource(R.string.account_close_phone_login)
     val scope = rememberCoroutineScope()
     val focusManager = LocalFocusManager.current
     val phoneFocusRequester = remember { FocusRequester() }
@@ -104,7 +110,7 @@ fun MeloXPhoneCodeLoginScreen(
     fun send() {
         if (loading) return
         if (!isValidPhone(phone)) {
-            error = "请输入有效手机号"
+            error = context.getString(R.string.account_phone_invalid)
             return
         }
         loading = true
@@ -115,7 +121,7 @@ fun MeloXPhoneCodeLoginScreen(
                     step = PhoneLoginStep.Code
                     resendSeconds = PHONE_CODE_RESEND_SECONDS
                 }
-                .onFailure { error = it.message ?: "验证码发送失败，请稍后重试" }
+                .onFailure { error = it.message ?: context.getString(R.string.account_code_send_failed) }
             loading = false
         }
     }
@@ -123,7 +129,7 @@ fun MeloXPhoneCodeLoginScreen(
     fun submit() {
         if (loading) return
         if (!isValidVerificationCode(code)) {
-            error = "请输入有效验证码"
+            error = context.getString(R.string.account_code_invalid)
             return
         }
         loading = true
@@ -131,7 +137,7 @@ fun MeloXPhoneCodeLoginScreen(
         focusManager.clearFocus()
         scope.launch {
             onSubmitCode(countryCode, normalizedPhone(phone), normalizeVerificationCode(code))
-                .onFailure { error = it.message ?: "验证码登录失败，请稍后重试" }
+                .onFailure { error = it.message ?: context.getString(R.string.account_code_login_failed) }
             loading = false
         }
     }
@@ -191,13 +197,13 @@ fun MeloXPhoneCodeLoginScreen(
                         symbol = MeloXSymbol.MusicNote,
                         modifier = Modifier.size(36.dp),
                         color = Color.White,
-                        contentDescription = "$serviceName 音乐服务",
+                        contentDescription = stringResource(R.string.account_service_music, serviceName),
                         iconSize = 32.sp,
                     )
                 }
                 Spacer(Modifier.height(18.dp))
                 Text(
-                    text = "登录 $serviceName",
+                    text = stringResource(R.string.account_login_service, serviceName),
                     color = MaterialTheme.colorScheme.onBackground,
                     fontSize = 28.sp,
                     lineHeight = 34.sp,
@@ -208,7 +214,7 @@ fun MeloXPhoneCodeLoginScreen(
                     text = if (step == PhoneLoginStep.Phone) {
                         description
                     } else {
-                        "输入发送至 +$countryCode ${phone.trim()} 的验证码。"
+                        stringResource(R.string.account_code_sent, countryCode, phone.trim())
                     },
                     modifier = Modifier
                         .widthIn(max = 480.dp)
@@ -270,7 +276,7 @@ fun MeloXPhoneCodeLoginScreen(
                         modifier = Modifier.padding(top = 6.dp),
                     ) {
                         Text(
-                            if (resendSeconds > 0) "${resendSeconds} 秒后可重新发送" else "重新发送验证码",
+                            if (resendSeconds > 0) stringResource(R.string.account_resend_wait, resendSeconds) else stringResource(R.string.account_resend_code),
                             color = if (resendSeconds == 0) brandColor else MaterialTheme.colorScheme.onSurfaceVariant,
                             fontSize = 14.sp,
                         )
@@ -297,7 +303,7 @@ fun MeloXPhoneCodeLoginScreen(
                     iconSize = 15.sp,
                 )
                 Text(
-                    text = "你的手机号和验证码只会发送给 $serviceName，用于完成登录；验证码不会保存在 MeloX 中。",
+                    text = stringResource(R.string.account_phone_privacy, serviceName),
                     modifier = Modifier.weight(1f),
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     fontSize = 12.sp,
@@ -325,7 +331,7 @@ fun MeloXPhoneCodeLoginScreen(
                             role = Role.Button,
                             onClick = { send() },
                         )
-                        .semantics { contentDescription = "继续登录 $serviceName" },
+                        .semantics { contentDescription = continueLoginDescription },
                     contentAlignment = Alignment.Center,
                 ) {
                     if (loading) {
@@ -336,7 +342,7 @@ fun MeloXPhoneCodeLoginScreen(
                         )
                     } else {
                         Text(
-                            text = "继续",
+                            text = stringResource(R.string.account_continue),
                             color = Color.White,
                             fontSize = 17.sp,
                             fontWeight = FontWeight.Medium,
@@ -351,7 +357,7 @@ fun MeloXPhoneCodeLoginScreen(
                     .semantics { role = Role.Button },
             ) {
                 Text(
-                    text = if (step == PhoneLoginStep.Code) "收不到验证码？使用网页登录" else "使用网页登录",
+                    text = if (step == PhoneLoginStep.Code) stringResource(R.string.account_web_login_fallback) else stringResource(R.string.account_web_login),
                     color = if (webFallbackEmphasis) brandColor else MaterialTheme.colorScheme.onSurfaceVariant,
                     fontSize = 14.sp,
                     fontWeight = if (webFallbackEmphasis) FontWeight.Medium else FontWeight.Normal,
@@ -371,7 +377,7 @@ fun MeloXPhoneCodeLoginScreen(
                 .clip(CircleShape)
                 .background(MaterialTheme.colorScheme.surfaceVariant)
                 .clickable(role = Role.Button, onClick = onClose)
-                .semantics { contentDescription = "关闭手机号登录" },
+                .semantics { contentDescription = closeLoginDescription },
             contentAlignment = Alignment.Center,
         ) {
             MeloXSymbolIcon(
@@ -439,7 +445,7 @@ private fun ApplePhoneField(
             Box(modifier = Modifier.fillMaxSize()) {
                 if (floatingLabel) {
                     Text(
-                        text = "手机号",
+                        text = stringResource(R.string.account_phone),
                         modifier = Modifier
                             .align(Alignment.TopStart)
                             .padding(start = 16.dp, top = 7.dp),
@@ -464,7 +470,7 @@ private fun ApplePhoneField(
                     Box(modifier = Modifier.weight(1f)) {
                         if (!floatingLabel && value.isEmpty()) {
                             Text(
-                                text = "手机号",
+                                text = stringResource(R.string.account_phone),
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 fontSize = 17.sp,
                             )
@@ -503,6 +509,7 @@ private fun AppleVerificationFields(
         MaterialTheme.colorScheme.surface
     }
     val canSubmit = isValidVerificationCode(code) && !loading
+    val submitCodeDescription = stringResource(R.string.account_submit_code)
 
     Column(
         modifier = Modifier
@@ -520,7 +527,7 @@ private fun AppleVerificationFields(
             verticalArrangement = Arrangement.Center,
         ) {
             Text(
-                text = "手机号",
+                text = stringResource(R.string.account_phone),
                 color = if (isError) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant,
                 fontSize = 12.sp,
                 lineHeight = 15.sp,
@@ -564,7 +571,7 @@ private fun AppleVerificationFields(
                 Box(modifier = Modifier.fillMaxSize()) {
                     if (floatingLabel) {
                         Text(
-                            text = "验证码",
+                            text = stringResource(R.string.account_code),
                             modifier = Modifier
                                 .align(Alignment.TopStart)
                                 .padding(start = 16.dp, top = 7.dp),
@@ -581,7 +588,7 @@ private fun AppleVerificationFields(
                     ) {
                         if (!floatingLabel && code.isEmpty()) {
                             Text(
-                                text = "验证码",
+                                text = stringResource(R.string.account_code),
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 fontSize = 17.sp,
                             )
@@ -604,7 +611,7 @@ private fun AppleVerificationFields(
                                 role = Role.Button,
                                 onClick = onSubmit,
                             )
-                            .semantics { contentDescription = "提交验证码" },
+                            .semantics { contentDescription = submitCodeDescription },
                         contentAlignment = Alignment.Center,
                     ) {
                         if (loading) {

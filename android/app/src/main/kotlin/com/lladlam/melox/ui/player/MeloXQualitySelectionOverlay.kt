@@ -15,8 +15,10 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.lladlam.melox.R
 import com.lladlam.melox.core.audio.MusicQuality
 import com.lladlam.melox.core.audio.MusicQualityPreferences
 import com.lladlam.melox.core.audio.MusicQualityRuntime
@@ -105,12 +107,13 @@ internal fun MeloXQualitySelectionOverlay(
         else -> selected
     }
     val sourceLabel = when {
-        downloadedQuality != null -> "已下载音频"
-        fallbackSource != null -> "实际音源：${fallbackSource!!.displayName}"
-        source != MusicSource.Netease -> "${source.displayName} 音源"
-        else -> "当前播放"
+        downloadedQuality != null -> stringResource(R.string.player_quality_downloaded)
+        fallbackSource != null -> stringResource(R.string.player_quality_actual_source, fallbackSource!!.displayName)
+        source != MusicSource.Netease -> stringResource(R.string.player_quality_source, source.displayName)
+        else -> stringResource(R.string.player_quality_current_playback)
     }
     val details = qualityDetails(
+        context = context,
         resource = availability.resourceFor(actualQuality),
         quality = actualQuality,
         source = source,
@@ -121,9 +124,9 @@ internal fun MeloXQualitySelectionOverlay(
         visible = visible,
         onDismiss = onDismiss,
     ) {
-        Text("音质", style = MaterialTheme.typography.titleLarge)
+        Text(stringResource(R.string.player_quality_title), style = MaterialTheme.typography.titleLarge)
         Text(
-            text = "当前音质：${actualQuality.title}",
+            text = stringResource(R.string.player_quality_current, actualQuality.title),
             modifier = Modifier.padding(top = 9.dp),
             color = foreground.copy(alpha = 0.68f),
             fontSize = 14.sp,
@@ -151,12 +154,12 @@ internal fun MeloXQualitySelectionOverlay(
                 },
                 modifier = Modifier.weight(1f),
                 style = MeloXGlassButtonStyle.Plain,
-            ) { Text("设置") }
+            ) { Text(stringResource(R.string.player_quality_settings)) }
             MeloXGlassButton(
                 onClick = onDismiss,
                 modifier = Modifier.weight(1f),
                 style = MeloXGlassButtonStyle.BorderedProminent,
-            ) { Text("确认") }
+            ) { Text(stringResource(R.string.player_quality_confirm)) }
         }
     }
 }
@@ -172,23 +175,26 @@ private fun SongAudioAvailability.resourceFor(quality: MusicQuality): SongAudioR
 }
 
 private fun qualityDetails(
+    context: android.content.Context,
     resource: SongAudioResource?,
     quality: MusicQuality,
     source: MusicSource,
     downloaded: Boolean,
 ): String {
-    if (downloaded) return "本地文件 · 参数以下载音频为准"
+    if (downloaded) return context.getString(R.string.player_quality_local_file)
     val details = buildList {
         resource?.bitrate?.let { add("${it / 1000} kbps") }
         resource?.sampleRate?.let { add("${it / 1_000.0} kHz") }
         when (quality) {
             MusicQuality.HighDefinitionSurround,
             MusicQuality.ImmersiveSurround,
-            -> add("5.1 声道")
-            else -> if (source == MusicSource.Netease) add("2 声道")
+            -> add(context.getString(R.string.player_quality_channels_51))
+            else -> if (source == MusicSource.Netease) add(context.getString(R.string.player_quality_channels_2))
         }
     }
-    return details.joinToString(" · ").ifBlank { "${source.displayName} 未提供音频参数" }
+    return details.joinToString(" · ").ifBlank {
+        context.getString(R.string.player_quality_no_params, source.displayName)
+    }
 }
 
 private fun AudioQualityTier.toMusicQuality(): MusicQuality? = when (this) {

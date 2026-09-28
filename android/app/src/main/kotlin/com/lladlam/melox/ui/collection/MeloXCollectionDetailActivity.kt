@@ -21,11 +21,13 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil3.compose.AsyncImage
+import com.lladlam.melox.R
 import com.lladlam.melox.core.account.NeteaseSessionStore
 import com.lladlam.melox.core.audio.MusicQualityPreferences
 import com.lladlam.melox.core.download.MeloXDownloadStore
@@ -118,7 +120,7 @@ private fun AlbumScreen(id: Long, onBack: () -> Unit) {
     LaunchedEffect(id) {
         runCatching { client.albumDetail(id) }
             .onSuccess { detail = it; subscribed = it.subscribed }
-            .onFailure { error = it.message ?: "专辑加载失败" }
+            .onFailure { error = it.message ?: context.getString(R.string.artist_album_failed) }
         loading = false
     }
     val songs = detail?.songs.orEmpty()
@@ -133,7 +135,7 @@ private fun AlbumScreen(id: Long, onBack: () -> Unit) {
         Modifier.fillMaxSize().statusBarsPadding(),
         contentPadding = PaddingValues(20.dp, 8.dp, 20.dp, MeloXBottomContentClearance),
     ) {
-        item { Header(detail?.album?.name ?: "专辑", onBack) }
+        item { Header(detail?.album?.name ?: stringResource(R.string.artist_album), onBack) }
         detail?.let { value ->
             item {
                 Column(Modifier.fillMaxWidth().padding(vertical = 12.dp), horizontalAlignment = Alignment.CenterHorizontally) {
@@ -141,10 +143,10 @@ private fun AlbumScreen(id: Long, onBack: () -> Unit) {
                     Text(value.album.name, Modifier.padding(top = 15.dp), fontSize = 23.sp, fontWeight = FontWeight.Bold, maxLines = 2)
                     Text(value.album.artistText, Modifier.padding(top = 5.dp), color = MaterialTheme.colorScheme.onSurface.copy(alpha = .55f))
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Action("播放") { songs.firstOrNull()?.let { PlaybackCommands.playQueue(context, songs, it.id) } }
-                        Action("随机") { songs.shuffled().let { queue -> queue.firstOrNull()?.let { PlaybackCommands.playQueue(context, queue, it.id) } } }
+                        Action(stringResource(R.string.artist_play)) { songs.firstOrNull()?.let { PlaybackCommands.playQueue(context, songs, it.id) } }
+                        Action(stringResource(R.string.artist_shuffle)) { songs.shuffled().let { queue -> queue.firstOrNull()?.let { PlaybackCommands.playQueue(context, queue, it.id) } } }
                         subscribed?.let { state ->
-                            Action(if (state) "已收藏" else "收藏") {
+                            Action(if (state) stringResource(R.string.artist_saved) else stringResource(R.string.artist_save)) {
                                 val target = !state
                                 scope.launch {
                                     runCatching { client.setAlbumSubscribed(id, target) }
@@ -155,8 +157,8 @@ private fun AlbumScreen(id: Long, onBack: () -> Unit) {
                         }
                     }
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Action("批量下载") { showBatchDownload = true }
-                        Action("分享") { MeloXNeteaseResourceShareActivity.launch(context, "album", id, value.album.name, "https://music.163.com/album?id=$id") }
+                        Action(stringResource(R.string.artist_batch_download)) { showBatchDownload = true }
+                        Action(stringResource(R.string.artist_share)) { MeloXNeteaseResourceShareActivity.launch(context, "album", id, value.album.name, "https://music.163.com/album?id=$id") }
                     }
                     value.description?.let { Text(it, Modifier.fillMaxWidth().padding(top = 12.dp), color = MaterialTheme.colorScheme.onSurface.copy(alpha = .55f), fontSize = 13.sp) }
                 }
@@ -169,7 +171,7 @@ private fun AlbumScreen(id: Long, onBack: () -> Unit) {
                 singleLine = true,
                 modifier = Modifier.fillMaxWidth().meloXLiquidButton(shape = RoundedCornerShape(22.dp)).padding(horizontal = 14.dp, vertical = 11.dp),
                 textStyle = androidx.compose.ui.text.TextStyle(color = MaterialTheme.colorScheme.onSurface, fontSize = 16.sp),
-                decorationBox = { inner -> if (query.isBlank()) Text("在专辑中搜索", color = MaterialTheme.colorScheme.onSurface.copy(alpha = .4f)); inner() },
+                decorationBox = { inner -> if (query.isBlank()) Text(stringResource(R.string.artist_search_in_album), color = MaterialTheme.colorScheme.onSurface.copy(alpha = .4f)); inner() },
             )
         }
         if (loading) item { Box(Modifier.fillMaxWidth().height(150.dp), contentAlignment = Alignment.Center) { CircularProgressIndicator() } }
@@ -187,7 +189,7 @@ private fun AlbumScreen(id: Long, onBack: () -> Unit) {
         onDismiss = { showBatchDownload = false },
     )
 }
-@Composable private fun ArtistScreen(id: Long, onBack: () -> Unit) { val context = LocalContext.current; val app = context.applicationContext; val client = remember(app) { NeteaseCollectionDetailsClient(cookieProvider = { NeteaseSessionStore.readCookie(app) }) }; var detail by remember(id) { mutableStateOf<MeloXArtistDetail?>(null) }; var loading by remember(id) { mutableStateOf(true) }; var error by remember(id) { mutableStateOf<String?>(null) }; LaunchedEffect(id) { runCatching { client.artistDetail(id) }.onSuccess { detail = it }.onFailure { error = it.message ?: "歌手加载失败" }; loading = false }; BackHandler(onBack = onBack); val v = detail; LazyColumn(Modifier.fillMaxSize().statusBarsPadding(), contentPadding = PaddingValues(20.dp, 8.dp, 20.dp, MeloXBottomContentClearance)) { item { Header(v?.name ?: "歌手", onBack) }; v?.let { a -> item { Column(Modifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally) { AsyncImage(a.artworkUrl, null, contentScale = ContentScale.Crop, modifier = Modifier.size(176.dp).clip(CircleShape)); Text(a.name, Modifier.padding(top = 12.dp), fontSize = 24.sp, fontWeight = FontWeight.Bold); if (a.aliases.isNotEmpty()) Text(a.aliases.joinToString(" / ")); Action("播放热门歌曲") { a.hotSongs.firstOrNull()?.let { PlaybackCommands.playQueue(context, a.hotSongs, it.id) } } } }; item { Text("热门歌曲", fontSize = 21.sp, fontWeight = FontWeight.Bold) }; items(a.hotSongs.take(50), key = { "artist-song-${it.id}" }) { Track(it, { PlaybackCommands.playQueue(context, a.hotSongs, it.id) }) }; if (a.albums.isNotEmpty()) { item { Text("专辑", fontSize = 21.sp, fontWeight = FontWeight.Bold) }; items(a.albums, key = { "artist-album-${it.id}" }) { al -> Row(Modifier.fillMaxWidth().clickable { MeloXCollectionDetailActivity.launchAlbum(context, al) }.padding(vertical = 7.dp), verticalAlignment = Alignment.CenterVertically) { AsyncImage(al.artworkUrl, null, contentScale = ContentScale.Crop, modifier = Modifier.size(54.dp).clip(RoundedCornerShape(9.dp))); Column(Modifier.weight(1f).padding(start = 11.dp)) { Text(al.name, maxLines = 1); Text(al.type ?: al.artistText, fontSize = 12.sp) }; Text("›", fontSize = 24.sp) } } } }; if (loading) item { CircularProgressIndicator() }; error?.let { item { Text(it, color = MaterialTheme.colorScheme.error) } } } }
+@Composable private fun ArtistScreen(id: Long, onBack: () -> Unit) { val context = LocalContext.current; val app = context.applicationContext; val client = remember(app) { NeteaseCollectionDetailsClient(cookieProvider = { NeteaseSessionStore.readCookie(app) }) }; var detail by remember(id) { mutableStateOf<MeloXArtistDetail?>(null) }; var loading by remember(id) { mutableStateOf(true) }; var error by remember(id) { mutableStateOf<String?>(null) }; val artistFallback = stringResource(R.string.artist_fallback); val playHot = stringResource(R.string.artist_play_hot); val hotSongs = stringResource(R.string.artist_hot_songs); val albumsTitle = stringResource(R.string.artist_albums); LaunchedEffect(id) { runCatching { client.artistDetail(id) }.onSuccess { detail = it }.onFailure { error = it.message ?: context.getString(R.string.artist_load_failed) }; loading = false }; BackHandler(onBack = onBack); val v = detail; LazyColumn(Modifier.fillMaxSize().statusBarsPadding(), contentPadding = PaddingValues(20.dp, 8.dp, 20.dp, MeloXBottomContentClearance)) { item { Header(v?.name ?: artistFallback, onBack) }; v?.let { a -> item { Column(Modifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally) { AsyncImage(a.artworkUrl, null, contentScale = ContentScale.Crop, modifier = Modifier.size(176.dp).clip(CircleShape)); Text(a.name, Modifier.padding(top = 12.dp), fontSize = 24.sp, fontWeight = FontWeight.Bold); if (a.aliases.isNotEmpty()) Text(a.aliases.joinToString(" / ")); Action(playHot) { a.hotSongs.firstOrNull()?.let { PlaybackCommands.playQueue(context, a.hotSongs, it.id) } } } }; item { Text(hotSongs, fontSize = 21.sp, fontWeight = FontWeight.Bold) }; items(a.hotSongs.take(50), key = { "artist-song-${it.id}" }) { Track(it, { PlaybackCommands.playQueue(context, a.hotSongs, it.id) }) }; if (a.albums.isNotEmpty()) { item { Text(albumsTitle, fontSize = 21.sp, fontWeight = FontWeight.Bold) }; items(a.albums, key = { "artist-album-${it.id}" }) { al -> Row(Modifier.fillMaxWidth().clickable { MeloXCollectionDetailActivity.launchAlbum(context, al) }.padding(vertical = 7.dp), verticalAlignment = Alignment.CenterVertically) { AsyncImage(al.artworkUrl, null, contentScale = ContentScale.Crop, modifier = Modifier.size(54.dp).clip(RoundedCornerShape(9.dp))); Column(Modifier.weight(1f).padding(start = 11.dp)) { Text(al.name, maxLines = 1); Text(al.type ?: al.artistText, fontSize = 12.sp) }; Text("›", fontSize = 24.sp) } } } }; if (loading) item { CircularProgressIndicator() }; error?.let { item { Text(it, color = MaterialTheme.colorScheme.error) } } } }
 @Composable private fun PodcastProgramScreen(id: Long, onBack: () -> Unit) {
     val context = LocalContext.current
     val app = context.applicationContext
@@ -197,21 +199,21 @@ private fun AlbumScreen(id: Long, onBack: () -> Unit) {
     var error by remember(id) { mutableStateOf<String?>(null) }
     LaunchedEffect(id) {
         runCatching { client.podcastProgramDetail(id) }
-            .onSuccess { program = it ?: run { error = "节目不存在"; null } }
-            .onFailure { error = it.message ?: "节目加载失败" }
+            .onSuccess { program = it ?: run { error = context.getString(R.string.artist_program_missing); null } }
+            .onFailure { error = it.message ?: context.getString(R.string.artist_program_failed) }
         loading = false
     }
     LazyColumn(Modifier.fillMaxSize().statusBarsPadding(), contentPadding = PaddingValues(20.dp, 8.dp, 20.dp, MeloXBottomContentClearance)) {
-        item { Header(program?.name ?: "播客节目", onBack) }
+        item { Header(program?.name ?: stringResource(R.string.artist_podcast_episode), onBack) }
         program?.let { value ->
             item {
                 Column(Modifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally) {
                     AsyncImage(value.artworkUrl, value.name, contentScale = ContentScale.Crop, modifier = Modifier.size(210.dp).clip(RoundedCornerShape(18.dp)))
                     Text(value.name, Modifier.padding(top = 14.dp), fontSize = 23.sp, fontWeight = FontWeight.Bold)
                     Text(value.radioName, Modifier.padding(top = 5.dp), color = MaterialTheme.colorScheme.onSurface.copy(alpha = .55f))
-                    value.playbackSong?.let { song -> Action("播放本期节目") { PlaybackCommands.playQueue(context, listOf(song), song.id) } }
+                    value.playbackSong?.let { song -> Action(stringResource(R.string.artist_play_episode)) { PlaybackCommands.playQueue(context, listOf(song), song.id) } }
                     value.description?.let { Text(it, Modifier.fillMaxWidth().padding(top = 12.dp), color = MaterialTheme.colorScheme.onSurface.copy(alpha = .62f)) }
-                    Action("查看播客") { MeloXCollectionDetailActivity.launchPodcast(context, value.radioId) }
+                    Action(stringResource(R.string.artist_view_podcast)) { MeloXCollectionDetailActivity.launchPodcast(context, value.radioId) }
                 }
             }
         }
@@ -219,6 +221,6 @@ private fun AlbumScreen(id: Long, onBack: () -> Unit) {
         error?.let { item { Text(it, color = MaterialTheme.colorScheme.error) } }
     }
 }
-@Composable private fun PodcastScreen(id: Long, onBack: () -> Unit) { val context = LocalContext.current; val app = context.applicationContext; val client = remember(app) { NeteaseUniversalSearchClient(cookieProvider = { NeteaseSessionStore.readCookie(app) }) }; val scope = rememberCoroutineScope(); var podcast by remember(id) { mutableStateOf<MeloXPodcast?>(null) }; var programs by remember(id) { mutableStateOf<List<MeloXPodcastProgram>>(emptyList()) }; var loading by remember(id) { mutableStateOf(true) }; var error by remember(id) { mutableStateOf<String?>(null) }; var subscribed by remember(id) { mutableStateOf(false) }; LaunchedEffect(id) { runCatching { client.podcastDetail(id) to client.podcastPrograms(id, limit = 100).values }.onSuccess { (p, list) -> podcast = p; subscribed = p?.subscribed == true; programs = list }.onFailure { error = it.message ?: "播客加载失败" }; loading = false }; BackHandler(onBack = onBack); val playable = programs.mapNotNull(MeloXPodcastProgram::playbackSong); LazyColumn(Modifier.fillMaxSize().statusBarsPadding(), contentPadding = PaddingValues(20.dp, 8.dp, 20.dp, MeloXBottomContentClearance)) { item { Header(podcast?.name ?: "播客", onBack) }; podcast?.let { p -> item { Column(Modifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally) { AsyncImage(p.artworkUrl, null, contentScale = ContentScale.Crop, modifier = Modifier.size(190.dp).clip(RoundedCornerShape(18.dp))); Text(p.name, Modifier.padding(top = 12.dp), fontSize = 23.sp, fontWeight = FontWeight.Bold); Row { Action("播放") { playable.firstOrNull()?.let { PlaybackCommands.playQueue(context, playable, it.id) } }; Action(if (subscribed) "已订阅" else "订阅") { scope.launch { runCatching { client.setPodcastSubscribed(id, !subscribed) }.onSuccess { subscribed = !subscribed }.onFailure { error = it.message } } } }; p.description?.let { Text(it, Modifier.padding(top = 10.dp)) } } } }; if (loading) item { CircularProgressIndicator() }; error?.let { item { Text(it, color = MaterialTheme.colorScheme.error) } }; items(programs, key = { "program-${it.id}" }) { pr -> pr.playbackSong?.let { song -> Track(song, { PlaybackCommands.playQueue(context, playable, song.id) }) } ?: Text(pr.name) } } }
+@Composable private fun PodcastScreen(id: Long, onBack: () -> Unit) { val context = LocalContext.current; val app = context.applicationContext; val client = remember(app) { NeteaseUniversalSearchClient(cookieProvider = { NeteaseSessionStore.readCookie(app) }) }; val scope = rememberCoroutineScope(); var podcast by remember(id) { mutableStateOf<MeloXPodcast?>(null) }; var programs by remember(id) { mutableStateOf<List<MeloXPodcastProgram>>(emptyList()) }; var loading by remember(id) { mutableStateOf(true) }; var error by remember(id) { mutableStateOf<String?>(null) }; var subscribed by remember(id) { mutableStateOf(false) }; val podcastFallback = stringResource(R.string.artist_podcast); val playLabel = stringResource(R.string.artist_play); val subscribedLabel = stringResource(R.string.artist_subscribed); val subscribeLabel = stringResource(R.string.artist_subscribe); LaunchedEffect(id) { runCatching { client.podcastDetail(id) to client.podcastPrograms(id, limit = 100).values }.onSuccess { (p, list) -> podcast = p; subscribed = p?.subscribed == true; programs = list }.onFailure { error = it.message ?: context.getString(R.string.artist_podcast_failed) }; loading = false }; BackHandler(onBack = onBack); val playable = programs.mapNotNull(MeloXPodcastProgram::playbackSong); LazyColumn(Modifier.fillMaxSize().statusBarsPadding(), contentPadding = PaddingValues(20.dp, 8.dp, 20.dp, MeloXBottomContentClearance)) { item { Header(podcast?.name ?: podcastFallback, onBack) }; podcast?.let { p -> item { Column(Modifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally) { AsyncImage(p.artworkUrl, null, contentScale = ContentScale.Crop, modifier = Modifier.size(190.dp).clip(RoundedCornerShape(18.dp))); Text(p.name, Modifier.padding(top = 12.dp), fontSize = 23.sp, fontWeight = FontWeight.Bold); Row { Action(playLabel) { playable.firstOrNull()?.let { PlaybackCommands.playQueue(context, playable, it.id) } }; Action(if (subscribed) subscribedLabel else subscribeLabel) { scope.launch { runCatching { client.setPodcastSubscribed(id, !subscribed) }.onSuccess { subscribed = !subscribed }.onFailure { error = it.message } } } }; p.description?.let { Text(it, Modifier.padding(top = 10.dp)) } } } }; if (loading) item { CircularProgressIndicator() }; error?.let { item { Text(it, color = MaterialTheme.colorScheme.error) } }; items(programs, key = { "program-${it.id}" }) { pr -> pr.playbackSong?.let { song -> Track(song, { PlaybackCommands.playQueue(context, playable, song.id) }) } ?: Text(pr.name) } } }
 @Composable private fun Track(song: SearchSong, onPlay: () -> Unit, onDownload: (() -> Unit)? = null) = Row(Modifier.fillMaxWidth().clickable(onClick = onPlay).padding(vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) { AsyncImage(song.artworkUrl, null, contentScale = ContentScale.Crop, modifier = Modifier.size(48.dp).clip(RoundedCornerShape(8.dp))); Column(Modifier.weight(1f).padding(start = 10.dp)) { Text(song.name, maxLines = 1); Text(song.artists, fontSize = 12.sp) }; onDownload?.let { MeloXActionIcon("↓", Modifier.size(20.dp).clickable(onClick = it).padding(2.dp), MaterialTheme.colorScheme.primary) } }
 @Composable private fun Action(title: String, onClick: () -> Unit) = Box(Modifier.padding(6.dp).meloXLiquidButton(shape = RoundedCornerShape(20.dp)).clickable(onClick = onClick).padding(horizontal = 12.dp, vertical = 8.dp), contentAlignment = Alignment.Center) { Text(title, fontWeight = FontWeight.SemiBold, fontSize = 13.sp) }

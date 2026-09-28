@@ -24,9 +24,11 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.lladlam.melox.R
 import com.lladlam.melox.core.account.NeteaseSessionStore
 import com.lladlam.melox.core.music.model.MusicSource
 import com.lladlam.melox.core.music.provider.MusicProviderSelectionStore
@@ -191,10 +193,10 @@ fun ProviderSettingsHub(
                     .weight(1f)
                     .verticalScroll(rememberScrollState()),
             ) {
-                Text("音乐服务", style = MaterialTheme.typography.titleLarge)
+                Text(stringResource(R.string.provider_music_services), style = MaterialTheme.typography.titleLarge)
                 Spacer(Modifier.height(8.dp))
                     Text(
-                        "只切换数据源。MeloX 的播放、歌词、外观、动画、背景和页面设置共用同一份配置。",
+                        stringResource(R.string.provider_switch_source_hint),
                         fontSize = 12.sp,
                         lineHeight = 18.sp,
                         color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.58f),
@@ -216,7 +218,7 @@ fun ProviderSettingsHub(
 
                     Spacer(Modifier.height(10.dp))
                     Text(
-                        "当前账号",
+                        stringResource(R.string.provider_current_account),
                         fontSize = 13.sp,
                         color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.48f),
                     )
@@ -225,11 +227,11 @@ fun ProviderSettingsHub(
                     ProviderSimpleCard(
                         currentSource.displayName,
                         when {
-                            currentSource == MusicSource.Local -> "本地音乐库 · 无需登录"
+                            currentSource == MusicSource.Local -> stringResource(R.string.provider_local_no_login)
                             currentAccount.loggedIn && !currentAccount.accountId.isNullOrBlank() ->
-                                "已登录 · ${currentAccount.accountId}"
-                            currentAccount.loggedIn -> "已登录"
-                            else -> "未登录 · 点击登录"
+                                stringResource(R.string.provider_logged_in_id, currentAccount.accountId!!)
+                            currentAccount.loggedIn -> stringResource(R.string.provider_logged_in)
+                            else -> stringResource(R.string.provider_logged_out_tap)
                         },
                         onClick = if (currentAccount.loggedIn) null else {
                             {
@@ -253,18 +255,18 @@ fun ProviderSettingsHub(
                     if (currentAccount.loggedIn) {
                         Spacer(Modifier.height(8.dp))
                         ProviderSimpleCard(
-                            "切换 / 重新登录账号",
+                            stringResource(R.string.provider_switch_account),
                             when (currentSource) {
-                                MusicSource.Netease -> "清除当前网易云登录态后重新登录"
-                                MusicSource.QQMusic -> "只清除 QQ音乐登录态后重新打开登录页"
-                                MusicSource.Kugou -> "保留 MID / GUID，只清除用户登录态后重新扫码"
-                                MusicSource.Kuwo -> "只清除酷我音乐登录态后重新手机号登录"
-                                MusicSource.AppleMusic -> "重新配置 Developer Token / Music User Token"
-                                MusicSource.Bilibili -> "清除当前 Bilibili 登录态后重新登录"
-                                MusicSource.Spotify -> "清除 OAuth token 后重新在浏览器授权"
-                                MusicSource.YouTubeMusic -> "匿名搜索和播放，无需登录"
-                                MusicSource.Jellyfin -> "清除当前 Jellyfin 服务器登录态后重新连接"
-                                MusicSource.Local -> "本地音乐库无需登录"
+                                MusicSource.Netease -> stringResource(R.string.provider_switch_netease)
+                                MusicSource.QQMusic -> stringResource(R.string.provider_switch_qq)
+                                MusicSource.Kugou -> stringResource(R.string.provider_switch_kugou)
+                                MusicSource.Kuwo -> stringResource(R.string.provider_switch_kuwo)
+                                MusicSource.AppleMusic -> stringResource(R.string.provider_switch_apple)
+                                MusicSource.Bilibili -> stringResource(R.string.provider_switch_bilibili)
+                                MusicSource.Spotify -> stringResource(R.string.provider_switch_spotify)
+                                MusicSource.YouTubeMusic -> stringResource(R.string.provider_switch_youtube)
+                                MusicSource.Jellyfin -> stringResource(R.string.provider_switch_jellyfin)
+                                MusicSource.Local -> stringResource(R.string.provider_switch_local)
                             },
                             onClick = {
                                 showServiceDialog = false
@@ -276,8 +278,8 @@ fun ProviderSettingsHub(
                         )
                         Spacer(Modifier.height(8.dp))
                         ProviderSimpleCard(
-                            "退出 ${currentSource.displayName}",
-                            "只清除这个音乐服务的本机登录态，不影响其他服务。",
+                            stringResource(R.string.provider_logout_title, currentSource.displayName),
+                            stringResource(R.string.provider_logout_subtitle),
                             onClick = {
                                 showServiceDialog = false
                                 pendingAccountAction = PendingProviderAccountAction(
@@ -290,14 +292,14 @@ fun ProviderSettingsHub(
 
                     Spacer(Modifier.height(16.dp))
                     Text(
-                        "跨平台搜索",
+                        stringResource(R.string.provider_cross_search),
                         fontSize = 13.sp,
                         color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.48f),
                     )
                     Spacer(Modifier.height(7.dp))
                     ProviderSettingToggle(
-                        title = "跨平台音乐聚合",
-                        subtitle = "默认关闭；开启后也只请求你明确勾选的平台",
+                        title = stringResource(R.string.provider_unified_title),
+                        subtitle = stringResource(R.string.provider_unified_subtitle_hub),
                         checked = unifiedEnabled,
                         onCheckedChange = { enabled ->
                             unifiedEnabled = enabled
@@ -313,10 +315,10 @@ fun ProviderSettingsHub(
                             ProviderSettingToggle(
                                 title = source.displayName,
                                 subtitle = when {
-                                    source == currentSource && account.loggedIn -> "当前音乐源 · 已登录"
-                                    source == currentSource -> "当前音乐源 · 未登录"
-                                    account.loggedIn -> "已登录 · 参与聚合搜索"
-                                    else -> "未登录 · 仅在你主动勾选后请求"
+                                    source == currentSource && account.loggedIn -> stringResource(R.string.provider_source_logged_in)
+                                    source == currentSource -> stringResource(R.string.provider_source_logged_out)
+                                    account.loggedIn -> stringResource(R.string.provider_unified_logged_in)
+                                    else -> stringResource(R.string.provider_unified_logged_out)
                                 },
                                 checked = source in unifiedSources,
                                 onCheckedChange = { enabled ->
@@ -335,18 +337,18 @@ fun ProviderSettingsHub(
                 onClick = { showServiceDialog = false },
                 modifier = Modifier.fillMaxWidth().padding(top = 12.dp),
                 style = MeloXGlassButtonStyle.BorderedProminent,
-            ) { Text("完成") }
+            ) { Text(stringResource(R.string.action_done)) }
         }
     }
 
     pendingAccountAction?.let { pending ->
         val actionTitle = when (pending.action) {
-            ProviderAccountAction.Logout -> "退出 ${pending.source.displayName}？"
-            ProviderAccountAction.SwitchAccount -> "切换 ${pending.source.displayName} 账号？"
+            ProviderAccountAction.Logout -> stringResource(R.string.provider_logout_confirm, pending.source.displayName)
+            ProviderAccountAction.SwitchAccount -> stringResource(R.string.provider_switch_confirm, pending.source.displayName)
         }
         val actionBody = when (pending.action) {
-            ProviderAccountAction.Logout -> "只会清除 MeloX 本机保存的该平台登录态，其他音乐服务不会受影响。"
-            ProviderAccountAction.SwitchAccount -> "会先清除当前账号的本机登录态，然后重新打开该平台登录流程。"
+            ProviderAccountAction.Logout -> stringResource(R.string.provider_logout_body)
+            ProviderAccountAction.SwitchAccount -> stringResource(R.string.provider_switch_body)
         }
         MeloXGlassDialog(
             visible = true,
@@ -366,7 +368,7 @@ fun ProviderSettingsHub(
                     onClick = { pendingAccountAction = null },
                     modifier = Modifier.weight(1f),
                     style = MeloXGlassButtonStyle.Plain,
-                ) { Text("取消") }
+                ) { Text(stringResource(R.string.action_cancel)) }
                 MeloXGlassButton(
                     onClick = {
                         when (pending.action) {
@@ -396,7 +398,7 @@ fun ProviderSettingsHub(
                     } else {
                         MeloXGlassButtonStyle.BorderedProminent
                     },
-                ) { Text(if (pending.action == ProviderAccountAction.Logout) "退出" else "继续") }
+                ) { Text(if (pending.action == ProviderAccountAction.Logout) stringResource(R.string.provider_logout) else stringResource(R.string.provider_continue)) }
             }
         }
     }
@@ -424,10 +426,10 @@ private fun ProviderSourceSelectionRow(
             Text(source.displayName, fontSize = 16.sp, fontWeight = FontWeight.SemiBold)
             Text(
                 when {
-                    selected && accountState.loggedIn -> "当前音乐源 · 已登录"
-                    selected -> "当前音乐源"
-                    accountState.loggedIn -> "已登录"
-                    else -> "未登录"
+                    selected && accountState.loggedIn -> stringResource(R.string.provider_source_logged_in)
+                    selected -> stringResource(R.string.provider_source_current)
+                    accountState.loggedIn -> stringResource(R.string.provider_logged_in)
+                    else -> stringResource(R.string.provider_not_signed_in)
                 },
                 fontSize = 11.sp,
                 color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.48f),

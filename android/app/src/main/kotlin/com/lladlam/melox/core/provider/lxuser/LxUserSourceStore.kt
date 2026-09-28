@@ -49,6 +49,7 @@ object LxUserSourceStore {
         val app = context.applicationContext
         val dir = File(app.filesDir, "lx-user-sources").apply { mkdirs() }
         File(dir, "$id.js").writeText(normalizedScript, Charsets.UTF_8)
+        LxUserRuntime.evict(id)
         val records = (list(app) + record).takeLast(MaxSources)
         saveList(app, records)
         return record
@@ -61,6 +62,7 @@ object LxUserSourceStore {
     fun remove(context: Context, id: String) {
         val app = context.applicationContext
         File(File(app.filesDir, "lx-user-sources"), "$id.js").delete()
+        LxUserRuntime.evict(id)
         saveList(app, list(app).filterNot { it.id == id })
     }
 

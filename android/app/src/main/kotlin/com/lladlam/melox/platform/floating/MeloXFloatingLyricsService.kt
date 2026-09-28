@@ -133,7 +133,7 @@ class MeloXFloatingLyricsService : Service() {
         lyricsSongId = songId
         lyrics = null
         lastIndex = Int.MIN_VALUE
-        primaryText?.text = "正在读取歌词"
+        primaryText?.text = getString(R.string.floating_lyrics_loading)
         secondaryText?.text = ""
         lyricsJob?.cancel()
         lyricsJob = scope.launch {
@@ -284,7 +284,7 @@ class MeloXFloatingLyricsService : Service() {
 
     private fun createNotificationChannel() {
         getSystemService(NotificationManager::class.java).createNotificationChannel(
-            NotificationChannel(CHANNEL_ID, "悬浮歌词", NotificationManager.IMPORTANCE_LOW).apply {
+            NotificationChannel(CHANNEL_ID, getString(R.string.floating_lyrics_channel), NotificationManager.IMPORTANCE_LOW).apply {
                 setSound(null, null)
                 enableVibration(false)
             },
@@ -310,9 +310,9 @@ class MeloXFloatingLyricsService : Service() {
         return NotificationCompat.Builder(this, CHANNEL_ID)
             .setSmallIcon(android.R.drawable.ic_media_play)
             .setContentTitle(getString(R.string.floating_lyrics_title))
-            .setContentText("正在其他应用上方显示歌词")
+            .setContentText(getString(R.string.floating_lyrics_showing))
             .setContentIntent(open)
-            .addAction(0, "停止", stop)
+            .addAction(0, getString(R.string.floating_lyrics_stop), stop)
             .setOngoing(true)
             .setSilent(true)
             .build()

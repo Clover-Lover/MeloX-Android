@@ -37,11 +37,13 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil3.compose.AsyncImage
+import com.lladlam.melox.R
 import com.lladlam.melox.core.account.NeteaseSessionStore
 import com.lladlam.melox.core.model.SearchSong
 import com.lladlam.melox.core.network.MeloXAlbumSummary
@@ -98,7 +100,7 @@ internal fun MeloXArtistDetailScreen(id: Long, onBack: () -> Unit) {
                 detail = it
                 followed = it.followed
             }
-            .onFailure { error = it.message ?: "歌手加载失败" }
+            .onFailure { error = it.message ?: context.getString(R.string.artist_load_failed) }
         loading = false
     }
 
@@ -119,13 +121,13 @@ internal fun MeloXArtistDetailScreen(id: Long, onBack: () -> Unit) {
                             scope.launch {
                                 runCatching { client.setArtistFollowed(id, target) }
                                     .onSuccess { followed = target }
-                                    .onFailure { error = it.message ?: "关注操作失败" }
+                                    .onFailure { error = it.message ?: context.getString(R.string.artist_follow_failed) }
                                 followBusy = false
                             }
                         },
                     )
                 }
-                item(key = "songs-title") { ArtistSectionTitle("热门单曲") }
+                item(key = "songs-title") { ArtistSectionTitle(stringResource(R.string.artist_hot_songs)) }
                 items(artist.hotSongs.take(100), key = { "artist-song-${it.id}" }) { song ->
                     ArtistSongRow(
                         song = song,
@@ -134,14 +136,14 @@ internal fun MeloXArtistDetailScreen(id: Long, onBack: () -> Unit) {
                         onLike = {
                             scope.launch {
                                 runCatching { operations.setSongLiked(song.id, true) }
-                                    .onFailure { error = it.message ?: "添加到资料库失败" }
+                                    .onFailure { error = it.message ?: context.getString(R.string.artist_library_failed) }
                             }
                         },
                     )
                 }
                 val fullList = allSongs.ifEmpty { artist.hotSongs }
                 if (allSongs.isNotEmpty()) {
-                    item(key = "all-songs-title") { ArtistSectionTitle("全部歌曲") }
+                    item(key = "all-songs-title") { ArtistSectionTitle(stringResource(R.string.artist_all_songs)) }
                     items(allSongs, key = { "artist-song-all-${it.id}" }) { song ->
                         ArtistSongRow(
                             song = song,
@@ -150,14 +152,14 @@ internal fun MeloXArtistDetailScreen(id: Long, onBack: () -> Unit) {
                             onLike = {
                                 scope.launch {
                                     runCatching { operations.setSongLiked(song.id, true) }
-                                        .onFailure { error = it.message ?: "添加到资料库失败" }
+                                        .onFailure { error = it.message ?: context.getString(R.string.artist_library_failed) }
                                 }
                             },
                         )
                     }
                 }
                 if (artist.albums.isNotEmpty()) {
-                    item(key = "albums-title") { ArtistSectionTitle("专辑") }
+                    item(key = "albums-title") { ArtistSectionTitle(stringResource(R.string.artist_albums)) }
                     item(key = "albums") {
                         LazyRow(
                             contentPadding = PaddingValues(horizontal = 20.dp),
@@ -182,7 +184,7 @@ internal fun MeloXArtistDetailScreen(id: Long, onBack: () -> Unit) {
         }
 
         Box(Modifier.statusBarsPadding().padding(start = 20.dp, top = 9.dp)) {
-            MeloXGlassIconButton(MeloXSymbol.ChevronLeft, onBack, contentDescription = "返回")
+            MeloXGlassIconButton(MeloXSymbol.ChevronLeft, onBack, contentDescription = stringResource(R.string.action_back))
         }
 
         selectedSong?.let { song ->
@@ -241,9 +243,9 @@ private fun ArtistHero(
                     }
                 }
                 Row(Modifier.padding(top = 16.dp), horizontalArrangement = Arrangement.spacedBy(24.dp)) {
-                    ArtistMetric(artist.musicSize, "单曲")
-                    ArtistMetric(artist.albumSize, "专辑")
-                    ArtistMetric(artist.mvSize, "MV")
+                    ArtistMetric(artist.musicSize, stringResource(R.string.artist_songs))
+                    ArtistMetric(artist.albumSize, stringResource(R.string.artist_albums))
+                    ArtistMetric(artist.mvSize, stringResource(R.string.artist_mv))
                 }
             }
         }
@@ -255,7 +257,7 @@ private fun ArtistHero(
                     enabled = !followBusy,
                     style = if (it) MeloXGlassButtonStyle.BorderedProminent else MeloXGlassButtonStyle.Bordered,
                     shape = MeloXShapes.capsule,
-                ) { Text(if (it) "已关注" else "关注", fontWeight = FontWeight.SemiBold) }
+                ) { Text(if (it) stringResource(R.string.artist_following) else stringResource(R.string.artist_follow), fontWeight = FontWeight.SemiBold) }
             }
             artist.description?.takeIf(String::isNotBlank)?.let { description ->
                 Text(
@@ -267,7 +269,7 @@ private fun ArtistHero(
                     lineHeight = 20.sp,
                 )
                 Text(
-                    if (expanded) "收起" else "展开全部",
+                    if (expanded) stringResource(R.string.artist_collapse) else stringResource(R.string.artist_expand),
                     modifier = Modifier.padding(top = 4.dp).clickable { expanded = !expanded },
                     color = MaterialTheme.colorScheme.primary,
                     style = MaterialTheme.typography.labelMedium,
@@ -295,10 +297,10 @@ private fun ArtistSongRow(song: SearchSong, onPlay: () -> Unit, onMore: () -> Un
     val context = LocalContext.current
     MeloXSwipeActionRow(
         startActions = listOf(
-            MeloXSwipeAction("下一首播放", MeloXSymbol.Next, Color(0xFF8E5AF7)) { PlaybackCommands.playNext(context, song) },
-            MeloXSwipeAction("稍后播放", MeloXSymbol.Queue, Color(0xFFFF9F0A)) { PlaybackCommands.addToQueue(context, song) },
+            MeloXSwipeAction(stringResource(R.string.player_play_next), MeloXSymbol.Next, Color(0xFF8E5AF7)) { PlaybackCommands.playNext(context, song) },
+            MeloXSwipeAction(stringResource(R.string.artist_play_later), MeloXSymbol.Queue, Color(0xFFFF9F0A)) { PlaybackCommands.addToQueue(context, song) },
         ),
-        endActions = listOf(MeloXSwipeAction("添加到资料库", MeloXSymbol.Heart, Color(0xFFFF3B30), onLike)),
+        endActions = listOf(MeloXSwipeAction(stringResource(R.string.artist_add_library), MeloXSymbol.Heart, Color(0xFFFF3B30), onLike)),
         startFullSwipeActionIndex = if (MeloXSettingsRuntime.swipeFullAction == MeloXSwipeFullAction.AddToQueue) 1 else 0,
         onClick = onPlay,
         onLongClick = onMore,

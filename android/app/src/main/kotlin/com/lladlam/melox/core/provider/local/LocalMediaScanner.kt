@@ -30,7 +30,7 @@ class LocalMediaScanner(
         val records = coroutineScope {
             val mediaStore = async(Dispatchers.IO) { scanMediaStore() }
             val trees = repository.scanRoots().map { root ->
-                async(Dispatchers.IO) { scanTree(root) }
+                async(Dispatchers.IO) { scanTree(Uri.parse(root.uri)) }
             }
             (listOf(mediaStore.await()) + trees.awaitAll()).flatten().distinctBy(LocalTrackRecord::fileKey)
         }
@@ -56,13 +56,14 @@ class LocalMediaScanner(
         return queryRecords(uri, projection, selection, null, null, null)
     }
 
-    private suspend fun scanTree(root: LocalScanRoot, depth: Int = 0): List<LocalTrackRecord> = coroutineScope {
+    private suspend fun scanTree(rootUri: Uri, depth: Int = 0): List<LocalTrackRecord> = coroutineScope {
         if (depth > 8) return@coroutineScope emptyList()
-        val treeUri = Uri.parse(root.uri)
-        val childrenUri = DocumentsContract.buildChildDocumentsUriUsingTree(
-            treeUri,
-            DocumentsContract.getTreeDocumentId(treeUri),
-        )
+        val documentId = if (depth == 0) {
+            DocumentsContract.getTreeDocumentId(rootUri)
+        } else {
+            DocumentsContract.getDocumentId(rootUri)
+        }
+        val childrenUri = DocumentsContract.buildChildDocumentsUriUsingTree(rootUri, documentId)
         val projection = arrayOf(
             DocumentsContract.Document.COLUMN_DOCUMENT_ID,
             DocumentsContract.Document.COLUMN_DISPLAY_NAME,
@@ -70,21 +71,19 @@ class LocalMediaScanner(
             DocumentsContract.Document.COLUMN_SIZE,
             DocumentsContract.Document.COLUMN_LAST_MODIFIED,
         )
-        val directories = mutableListOf<LocalScanRoot>()
+        val directories = mutableListOf<Uri>()
         val files = mutableListOf<Triple<Uri, String, String>>()
         runCatching {
             context.contentResolver.query(childrenUri, projection, null, null, null)?.use { cursor ->
                 while (cursor.moveToNext()) {
-                    val documentId = cursor.string(projection, DocumentsContract.Document.COLUMN_DOCUMENT_ID) ?: continue
+                    val childId = cursor.string(projection, DocumentsContract.Document.COLUMN_DOCUMENT_ID) ?: continue
                     val name = cursor.string(projection, DocumentsContract.Document.COLUMN_DISPLAY_NAME).orEmpty()
                     val mime = cursor.string(projection, DocumentsContract.Document.COLUMN_MIME_TYPE).orEmpty()
+                    val childUri = DocumentsContract.buildDocumentUriUsingTree(rootUri, childId)
                     if (mime == DocumentsContract.Document.MIME_TYPE_DIR) {
-                        directories += LocalScanRoot(
-                            DocumentsContract.buildDocumentUriUsingTree(treeUri, documentId).toString(),
-                            root.persistedFlags,
-                        )
+                        directories += childUri
                     } else if (isAudio(name, mime)) {
-                        files += Triple(DocumentsContract.buildDocumentUriUsingTree(treeUri, documentId), name, mime)
+                        files += Triple(childUri, name, mime)
                     }
                 }
             }
@@ -94,7 +93,7 @@ class LocalMediaScanner(
             async(Dispatchers.IO) { scanTree(child, depth + 1) }
         }
         val current = files.map { (uri, name, mime) ->
-            async(Dispatchers.IO) { fileSlots.withPermit { readMetadata(uri, name, mime, root.uri) } }
+            async(Dispatchers.IO) { fileSlots.withPermit { readMetadata(uri, name, mime, rootUri.toString()) } }
         }
         current.awaitAll().filterNotNull() + nested.awaitAll().flatten()
     }

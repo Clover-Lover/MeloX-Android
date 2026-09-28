@@ -14,8 +14,10 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
+import com.lladlam.melox.R
 import com.lladlam.melox.core.provider.bilibili.BilibiliProvider
 import com.lladlam.melox.core.provider.bilibili.BilibiliSessionStore
 import com.lladlam.melox.ui.legal.MeloXLegalLinks
@@ -45,8 +47,8 @@ fun BilibiliLoginScreen(onDismiss: () -> Unit, onLoggedIn: () -> Unit) {
     DisposableEffect(Unit) { onDispose { webView?.stopLoading(); webView?.destroy() } }
     Column(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background).statusBarsPadding()) {
         Row(Modifier.fillMaxWidth().padding(18.dp, 12.dp), Arrangement.SpaceBetween, Alignment.CenterVertically) {
-            Text("取消", Modifier.clickable(onClick = onDismiss).padding(8.dp), color = MaterialTheme.colorScheme.primary)
-            Text("登录 Bilibili", style = MaterialTheme.typography.titleMedium)
+            Text(stringResource(R.string.action_cancel), Modifier.clickable(onClick = onDismiss).padding(8.dp), color = MaterialTheme.colorScheme.primary)
+            Text(stringResource(R.string.account_login_bilibili), style = MaterialTheme.typography.titleMedium)
             Spacer(Modifier.width(48.dp))
         }
         if (loading) LinearProgressIndicator(Modifier.fillMaxWidth())

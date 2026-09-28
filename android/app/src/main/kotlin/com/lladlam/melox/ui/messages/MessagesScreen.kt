@@ -52,6 +52,7 @@ import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextOverflow
@@ -136,7 +137,7 @@ private fun MessagesConversationList(
             contacts = recent
                 .filter { it.id != profile.userId }
                 .distinctBy(MeloXMessageContact::id)
-        }.onFailure { error = it.message ?: "私信读取失败" }
+        }.onFailure { error = it.message ?: context.getString(R.string.message_dm_failed) }
         loading = false
     }
 
@@ -198,7 +199,7 @@ private fun MessagesConversationList(
                     contentAlignment = Alignment.Center,
                 ) {
                     Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                        Text(error ?: "加载失败", color = MaterialTheme.colorScheme.error, fontSize = 14.sp)
+                        Text(error ?: stringResource(R.string.message_load_failed), color = MaterialTheme.colorScheme.error, fontSize = 14.sp)
                         Spacer(Modifier.height(12.dp))
                         Box(
                             Modifier
@@ -282,7 +283,7 @@ private fun MessageContactsScreen(
             contacts = ops.messageContacts(profile.userId, limit = 1_000)
                 .filter { it.id != profile.userId }
                 .distinctBy(MeloXMessageContact::id)
-        }.onFailure { error = it.message ?: "联系人读取失败" }
+        }.onFailure { error = it.message ?: context.getString(R.string.message_contacts_failed) }
         loading = false
     }
     val filtered = remember(query, contacts) {
@@ -307,7 +308,7 @@ private fun MessageContactsScreen(
                 MeloXSymbolIcon(MeloXSymbol.ChevronLeft, Modifier.size(22.dp), MaterialTheme.colorScheme.primary)
             }
             Text(
-                "新建私信",
+                stringResource(R.string.message_new),
                 Modifier.weight(1f),
                 textAlign = androidx.compose.ui.text.style.TextAlign.Center,
                 fontSize = 17.sp,
@@ -341,7 +342,7 @@ private fun MessageContactsScreen(
                 ),
                 decorationBox = { inner ->
                     Box {
-                        if (query.isBlank()) Text("搜索联系人", color = MaterialTheme.colorScheme.onSurface.copy(alpha = .45f))
+                        if (query.isBlank()) Text(stringResource(R.string.message_search_contacts), color = MaterialTheme.colorScheme.onSurface.copy(alpha = .45f))
                         inner()
                     }
                 },
@@ -353,7 +354,7 @@ private fun MessageContactsScreen(
                 CircularProgressIndicator(Modifier.size(28.dp), strokeWidth = 2.5.dp)
             }
             error != null && contacts.isEmpty() -> Text(error.orEmpty(), color = MaterialTheme.colorScheme.error)
-            filtered.isEmpty() -> Text("没有找到联系人", color = MaterialTheme.colorScheme.onSurface.copy(alpha = .5f))
+            filtered.isEmpty() -> Text(stringResource(R.string.message_no_contacts), color = MaterialTheme.colorScheme.onSurface.copy(alpha = .5f))
             else -> LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 24.dp)) {
                 item(key = "message-contact-group") {
                     MeloXIosGroupedList {
@@ -387,7 +388,7 @@ private fun MessagesConversationItem(
 ) {
     MeloXIosListRow(
         title = contact.name,
-        subtitle = contact.latestMessage ?: contact.signature.ifBlank { "暂无消息" },
+        subtitle = contact.latestMessage ?: contact.signature.ifBlank { stringResource(R.string.message_none) },
         leading = {
             AsyncImage(
                 model = contact.avatarUrl,
@@ -454,7 +455,7 @@ private fun MessagesDetailScreen(
             val profile = account.accountProfile()
             currentUserId = profile.userId
             messages = ops.privateMessageHistory(contact.id)
-        }.onFailure { error = it.message ?: "私信读取失败" }
+        }.onFailure { error = it.message ?: context.getString(R.string.message_dm_failed) }
         loading = false
     }
     LaunchedEffect(messages.size, messages.lastOrNull()?.id) {
@@ -472,7 +473,7 @@ private fun MessagesDetailScreen(
                         draft = ""
                         messages = ops.privateMessageHistory(contact.id)
                     }
-                    .onFailure { error = it.message ?: "发送失败" }
+                    .onFailure { error = it.message ?: context.getString(R.string.message_send_failed) }
                 busy = false
             }
         }
@@ -590,7 +591,7 @@ private fun MessagesDetailScreen(
                     decorationBox = { inner ->
                         Box {
                             if (draft.isBlank()) Text(
-                                "输入私信",
+                                stringResource(R.string.message_input),
                                 color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.38f),
                                 fontSize = 15.sp,
                             )
@@ -689,11 +690,11 @@ private fun MessageBubble(
             }
             DropdownMenu(expanded = menuExpanded, onDismissRequest = { menuExpanded = false }) {
                 DropdownMenuItem(
-                    text = { Text("复制") },
+                    text = { Text(stringResource(R.string.message_copy)) },
                     onClick = {
                         val summary = message.text.ifBlank { message.resource?.title.orEmpty() }
                         val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-                        clipboard.setPrimaryClip(ClipData.newPlainText("私信", summary))
+                        clipboard.setPrimaryClip(ClipData.newPlainText(context.getString(R.string.message_clipboard_label), summary))
                         menuExpanded = false
                     },
                 )

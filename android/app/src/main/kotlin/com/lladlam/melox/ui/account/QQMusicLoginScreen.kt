@@ -58,6 +58,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.liveRegion
@@ -67,6 +68,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
+import com.lladlam.melox.R
 import com.lladlam.melox.core.music.provider.PlaybackAccountSlot
 import com.lladlam.melox.core.provider.qqmusic.QQMusicApiClient
 import com.lladlam.melox.core.provider.qqmusic.QQMusicQrLoginClient
@@ -94,13 +96,14 @@ fun QQMusicLoginScreen(
     onLoggedIn: () -> Unit,
     targetSlot: PlaybackAccountSlot = PlaybackAccountSlot.Main,
 ) {
-    val context = LocalContext.current.applicationContext
+    val activityContext = LocalContext.current
+    val context = activityContext.applicationContext
     val client = remember { QQMusicQrLoginClient() }
     val scope = rememberCoroutineScope()
     var methodName by rememberSaveable { mutableStateOf(QQMusicQrLoginMethod.QQ.name) }
     val method = QQMusicQrLoginMethod.valueOf(methodName)
     var qrSession by remember { mutableStateOf<QQMusicQrLoginSession?>(null) }
-    var stateText by remember { mutableStateOf(method.loadingText()) }
+    var stateText by remember { mutableStateOf(method.loadingText(activityContext)) }
     var error by remember { mutableStateOf<String?>(null) }
     var actionMessage by remember { mutableStateOf<String?>(null) }
     var actionFailed by remember { mutableStateOf(false) }
@@ -118,10 +121,10 @@ fun QQMusicLoginScreen(
                 withContext(Dispatchers.IO) { saveQrImageToGallery(context, current) }
             }.onSuccess { location ->
                 actionFailed = false
-                actionMessage = "二维码已保存到 $location"
+                actionMessage = activityContext.getString(R.string.account_qr_saved, location)
             }.onFailure { failure ->
                 actionFailed = true
-                actionMessage = failure.message ?: "二维码保存失败，请稍后重试"
+                actionMessage = failure.message ?: activityContext.getString(R.string.account_qr_save_failed)
             }
             saving = false
         }
@@ -134,7 +137,7 @@ fun QQMusicLoginScreen(
             saveCurrentQr()
         } else {
             actionFailed = true
-            actionMessage = "未获得存储权限，无法保存二维码"
+            actionMessage = activityContext.getString(R.string.account_storage_denied)
         }
     }
 
@@ -143,38 +146,38 @@ fun QQMusicLoginScreen(
             qrSession = null
             error = null
             actionMessage = null
-            stateText = method.loadingText()
+            stateText = method.loadingText(activityContext)
             val created = runCatchingCancellable { client.createSession(method) }
-                .onFailure { error = qrErrorMessage(it, "获取${method.displayName()}登录二维码失败") }
+                .onFailure { error = qrErrorMessage(activityContext, it, activityContext.getString(R.string.account_qr_create_failed, method.displayName(activityContext))) }
                 .getOrNull() ?: return@LaunchedEffect
             qrSession = created
-            stateText = method.waitingText()
+            stateText = method.waitingText(activityContext)
 
             delay(500)
             while (true) {
                 val state = runCatchingCancellable { client.checkSession(created) }
-                    .onFailure { error = qrErrorMessage(it, "检查${method.displayName()}扫码状态失败") }
+                    .onFailure { error = qrErrorMessage(activityContext, it, activityContext.getString(R.string.account_qr_status_failed, method.displayName(activityContext))) }
                     .getOrNull() ?: return@LaunchedEffect
                 when (state) {
-                    QQMusicQrLoginState.Waiting -> stateText = method.waitingText()
-                    QQMusicQrLoginState.Scanned -> stateText = "已扫码，请在${method.displayName()}中确认"
+                    QQMusicQrLoginState.Waiting -> stateText = method.waitingText(activityContext)
+                    QQMusicQrLoginState.Scanned -> stateText = activityContext.getString(R.string.account_qr_scanned_confirm, method.displayName(activityContext))
                     QQMusicQrLoginState.Expired -> {
                         qrSession = null
-                        stateText = method.loadingText()
+                        stateText = method.loadingText(activityContext)
                         delay(250)
                         continue@sessionLoop
                     }
                     QQMusicQrLoginState.Rejected -> {
-                        stateText = "你已取消授权"
+                        stateText = activityContext.getString(R.string.account_auth_cancelled)
                         return@LaunchedEffect
                     }
                     is QQMusicQrLoginState.Authorized -> {
-                        stateText = "正在验证 QQ音乐登录状态…"
+                        stateText = activityContext.getString(R.string.account_qq_verifying)
                         val session = QQMusicSessionStore.parse(state.cookie)
                         val verified = runCatchingCancellable {
                             QQMusicApiClient(sessionProvider = { session }).accountProfile(session)
                         }.onFailure {
-                            error = it.message ?: "QQ音乐登录状态验证失败"
+                            error = it.message ?: activityContext.getString(R.string.account_qq_verify_failed)
                         }.isSuccess
                         if (!verified) return@LaunchedEffect
                         QQMusicSessionStore.write(
@@ -182,7 +185,7 @@ fun QQMusicLoginScreen(
                             cookie = state.cookie,
                             playback = targetSlot == PlaybackAccountSlot.Playback,
                         )
-                        stateText = "登录成功"
+                        stateText = activityContext.getString(R.string.account_login_success)
                         onLoggedIn()
                         return@LaunchedEffect
                     }
@@ -205,7 +208,7 @@ fun QQMusicLoginScreen(
             .statusBarsPadding(),
     ) {
         MeloXIosTopBar(
-            title = "登录 QQ音乐",
+            title = stringResource(R.string.account_login_qq),
             contentPadding = PaddingValues(horizontal = 10.dp),
             navigation = {
                 MeloXSymbolIcon(
@@ -215,7 +218,7 @@ fun QQMusicLoginScreen(
                         .clickable(onClick = onDismiss),
                     color = MaterialTheme.colorScheme.onBackground,
                     iconSize = 24.sp,
-                    contentDescription = "返回",
+                    contentDescription = stringResource(R.string.player_back),
                 )
             },
         )
@@ -263,7 +266,7 @@ fun QQMusicLoginScreen(
                     if (bitmap != null) {
                         Image(
                             bitmap = bitmap.asImageBitmap(),
-                            contentDescription = "QQ音乐${method.displayName()}登录二维码",
+                            contentDescription = stringResource(R.string.account_qq_qr, method.displayName(activityContext)),
                             modifier = Modifier
                                 .size(240.dp)
                                 .clip(RoundedCornerShape(24.dp))
@@ -282,7 +285,7 @@ fun QQMusicLoginScreen(
                     QrActionButton(
                         onClick = { refreshToken += 1 },
                         icon = MeloXSymbol.Refresh,
-                        label = "刷新二维码",
+                        label = stringResource(R.string.account_refresh_qr),
                         tint = method.accentColor(),
                         modifier = Modifier.weight(1f),
                     )
@@ -301,7 +304,7 @@ fun QQMusicLoginScreen(
                             }
                         },
                         icon = MeloXSymbol.Download,
-                        label = if (saving) "正在保存…" else "保存到相册",
+                        label = if (saving) stringResource(R.string.account_saving) else stringResource(R.string.account_save_gallery),
                         tint = method.accentColor(),
                         enabled = actionsEnabled && !saving,
                         modifier = Modifier.weight(1f),
@@ -319,7 +322,7 @@ fun QQMusicLoginScreen(
                 )
                 Spacer(Modifier.size(8.dp))
                 Text(
-                    text = method.instructionText(),
+                    text = method.instructionText(activityContext),
                     modifier = Modifier.heightIn(min = 40.dp),
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     fontSize = 13.sp,
@@ -328,7 +331,7 @@ fun QQMusicLoginScreen(
                 )
                 Spacer(Modifier.size(8.dp))
                 Text(
-                    text = "登录凭证仅保存在本机，不会上传到 MeloX 服务器。",
+                    text = stringResource(R.string.account_credentials_local),
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     fontSize = 13.sp,
                     lineHeight = 20.sp,
@@ -357,14 +360,14 @@ fun QQMusicLoginScreen(
                     )
                 }
                 if (
-                    stateText == "你已取消授权" ||
+                    stateText == activityContext.getString(R.string.account_auth_cancelled) ||
                     error != null
                 ) {
                     Spacer(Modifier.size(18.dp))
                     QrActionButton(
                         onClick = { refreshToken += 1 },
                         icon = MeloXSymbol.Refresh,
-                        label = "重新生成二维码",
+                        label = stringResource(R.string.account_regenerate_qr),
                         tint = method.accentColor(),
                         modifier = Modifier.fillMaxWidth(),
                     )
@@ -385,6 +388,7 @@ private fun QQMusicLoginMethodSelector(
     onSelect: (QQMusicQrLoginMethod) -> Unit,
     modifier: Modifier = Modifier,
 ) {
+    val activityContext = LocalContext.current
     BoxWithConstraints(
         modifier = modifier
             .fillMaxWidth()
@@ -439,7 +443,7 @@ private fun QQMusicLoginMethodSelector(
                     contentAlignment = Alignment.Center,
                 ) {
                     Text(
-                        text = "${method.displayName()}扫码",
+                        text = stringResource(R.string.account_qr_scan_label, method.displayName(activityContext)),
                         color = labelColor,
                         fontSize = 15.sp,
                         fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Medium,
@@ -493,21 +497,22 @@ private fun QrActionButton(
     }
 }
 
-private fun QQMusicQrLoginMethod.displayName(): String = when (this) {
+private fun QQMusicQrLoginMethod.displayName(context: Context): String = when (this) {
     QQMusicQrLoginMethod.QQ -> "QQ"
-    QQMusicQrLoginMethod.WeChat -> "微信"
+    QQMusicQrLoginMethod.WeChat -> context.getString(R.string.account_wechat)
 }
 
-private fun QQMusicQrLoginMethod.loadingText(): String = "正在获取${displayName()}登录二维码…"
+private fun QQMusicQrLoginMethod.loadingText(context: Context): String =
+    context.getString(R.string.account_qr_loading, displayName(context))
 
-private fun QQMusicQrLoginMethod.waitingText(): String = when (this) {
-    QQMusicQrLoginMethod.QQ -> "请使用手机 QQ 扫码"
-    QQMusicQrLoginMethod.WeChat -> "请使用微信扫一扫扫码"
+private fun QQMusicQrLoginMethod.waitingText(context: Context): String = when (this) {
+    QQMusicQrLoginMethod.QQ -> context.getString(R.string.account_qq_scan)
+    QQMusicQrLoginMethod.WeChat -> context.getString(R.string.account_wechat_scan)
 }
 
-private fun QQMusicQrLoginMethod.instructionText(): String = when (this) {
-    QQMusicQrLoginMethod.QQ -> "扫码并在 QQ 中确认即可登录。也可以保存二维码，再从 QQ 扫一扫的相册中选择。"
-    QQMusicQrLoginMethod.WeChat -> "扫码并在微信中确认即可登录。也可以保存二维码，再从微信扫一扫的相册中选择。"
+private fun QQMusicQrLoginMethod.instructionText(context: Context): String = when (this) {
+    QQMusicQrLoginMethod.QQ -> context.getString(R.string.account_qq_instruction)
+    QQMusicQrLoginMethod.WeChat -> context.getString(R.string.account_wechat_instruction)
 }
 
 private fun QQMusicQrLoginMethod.accentColor(): Color = when (this) {
@@ -523,10 +528,10 @@ private suspend fun <T> runCatchingCancellable(block: suspend () -> T): Result<T
     Result.failure(failure)
 }
 
-private fun qrErrorMessage(error: Throwable, fallback: String): String {
+private fun qrErrorMessage(context: Context, error: Throwable, fallback: String): String {
     val message = error.message?.trim().orEmpty()
     return when {
-        message.equals("timeout", ignoreCase = true) -> "网络请求超时，请点击刷新二维码重试"
+        message.equals("timeout", ignoreCase = true) -> context.getString(R.string.account_timeout_refresh)
         message.isBlank() -> fallback
         else -> message
     }
@@ -548,10 +553,10 @@ private fun saveQrImageToGallery(
         }
         val resolver = context.contentResolver
         val target = resolver.insert(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, values)
-            ?: error("无法创建系统图片")
+            ?: error(context.getString(R.string.account_image_create_failed))
         runCatching {
             resolver.openOutputStream(target)?.use { output -> output.write(session.imageBytes) }
-                ?: error("无法写入系统图片")
+                ?: error(context.getString(R.string.account_image_write_failed))
             resolver.update(
                 target,
                 ContentValues().apply { put(MediaStore.Images.Media.IS_PENDING, 0) },
@@ -568,7 +573,7 @@ private fun saveQrImageToGallery(
             Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_PICTURES),
             "MeloX",
         )
-        check(directory.exists() || directory.mkdirs()) { "无法创建 Pictures/MeloX 文件夹" }
+        check(directory.exists() || directory.mkdirs()) { context.getString(R.string.account_folder_create_failed) }
         val target = File(directory, fileName)
         FileOutputStream(target).use { output -> output.write(session.imageBytes) }
         MediaScannerConnection.scanFile(

@@ -1,6 +1,7 @@
 package com.lladlam.melox.ui.provider
 
 import android.Manifest
+import android.content.Context
 import android.content.Intent
 import android.net.Uri
 import android.os.Build
@@ -39,6 +40,8 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.stringResource
+import com.lladlam.melox.R
 import com.lladlam.melox.core.account.NeteaseSessionStore
 import com.lladlam.melox.core.music.model.MusicSource
 import com.lladlam.melox.core.music.provider.MusicProviderSelectionStore
@@ -132,27 +135,26 @@ fun ProviderServicesScreen(
             runCatching { localScanner.scanAll() }
                 .onSuccess { records ->
                     localTrackCount = records.size
-                    localScanMessage = "已扫描 ${records.size} 首本地歌曲"
+                    localScanMessage = context.getString(R.string.provider_scanned_count, records.size)
                 }
-                .onFailure { localScanMessage = it.message ?: "本地音乐扫描失败" }
+                .onFailure { localScanMessage = it.message ?: context.getString(R.string.provider_scan_failed) }
             localScanBusy = false
         }
     }
     val localPermissionLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestPermission(),
     ) { granted ->
-        if (granted) scanLocalMusic() else localScanMessage = "需要音乐文件权限才能扫描设备歌曲"
+        if (granted) scanLocalMusic() else localScanMessage = context.getString(R.string.provider_audio_permission)
     }
     val localTreeLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.OpenDocumentTree(),
     ) { uri ->
         uri ?: return@rememberLauncherForActivityResult
-        runCatching {
-            val flags = Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION
-            context.contentResolver.takePersistableUriPermission(uri, flags)
+        val saved = runCatching {
+            val flags = persistableTreeFlags(context, uri)
             localRepository.addScanRoot(LocalScanRoot(uri.toString(), flags))
-        }.onFailure { localScanMessage = it.message ?: "目录授权失败" }
-        scanLocalMusic()
+        }.onFailure { localScanMessage = it.message ?: context.getString(R.string.provider_folder_auth_failed) }
+        if (saved.isSuccess) scanLocalMusic()
     }
     fun requestLocalScan() {
         if (Build.VERSION.SDK_INT >= 33) {
@@ -170,19 +172,19 @@ fun ProviderServicesScreen(
                 runCatching {
                     val script = withContext(Dispatchers.IO) {
                         context.contentResolver.openInputStream(uri)?.bufferedReader()?.use { it.readText() }
-                            ?: error("无法读取音乐源文件")
+                            ?: error(context.getString(R.string.provider_source_unreadable))
                     }
                     withContext(Dispatchers.IO) { LxUserSourceStore.import(context, script) }
                 }.onSuccess {
                     imported++
                 }.onFailure {
-                    failures += "第 ${index + 1} 个文件：${it.message ?: "导入失败"}"
+                    failures += context.getString(R.string.provider_file_import_failed, index + 1, it.message ?: context.getString(R.string.provider_import_generic_failed))
                 }
             }
             lxSources = LxUserSourceStore.list(context)
             lxImportError = when {
-                failures.isEmpty() -> "已导入 $imported 个音乐源"
-                imported > 0 -> "已导入 $imported 个，失败 ${failures.size} 个\n${failures.joinToString("\n")}"
+                failures.isEmpty() -> context.getString(R.string.provider_imported_count, imported)
+                imported > 0 -> context.getString(R.string.provider_imported_partial, imported, failures.size, failures.joinToString("\n"))
                 else -> failures.joinToString("\n")
             }
             showLxImportDialog = true
@@ -251,7 +253,7 @@ fun ProviderServicesScreen(
             .padding(top = 18.dp, bottom = MeloXBottomContentClearance),
     ) {
         MeloXIosTopBar(
-            title = "音乐服务",
+            title = stringResource(R.string.provider_music_services),
             contentPadding = PaddingValues(horizontal = 0.dp),
             navigation = {
                 Box(
@@ -266,17 +268,17 @@ fun ProviderServicesScreen(
         )
         Spacer(Modifier.size(26.dp))
 
-        ServicesSectionLabel("音乐源")
+        ServicesSectionLabel(stringResource(R.string.provider_sources))
         MeloXIosGroupedList(surfaceColor = MaterialTheme.colorScheme.surface) {
             MusicProviderSelectionStore.visibleSources().forEachIndexed { index, source ->
                 val account = accountManager.state(source)
                 MeloXIosListRow(
                     title = source.displayName,
                     subtitle = when {
-                        source == currentSource && account.loggedIn -> "当前音乐源 · 已登录"
-                        source == currentSource -> "当前音乐源 · 未登录"
-                        account.loggedIn -> "已登录"
-                        else -> "未登录"
+                        source == currentSource && account.loggedIn -> stringResource(R.string.provider_source_logged_in)
+                        source == currentSource -> stringResource(R.string.provider_source_logged_out)
+                        account.loggedIn -> stringResource(R.string.provider_logged_in)
+                        else -> stringResource(R.string.provider_not_signed_in)
                     },
                     leading = {
                         MeloXSymbolIcon(
@@ -295,15 +297,15 @@ fun ProviderServicesScreen(
         }
 
         Spacer(Modifier.size(24.dp))
-        ServicesSectionLabel("当前账号")
+        ServicesSectionLabel(stringResource(R.string.provider_current_account))
         MeloXIosGroupedList(surfaceColor = MaterialTheme.colorScheme.surface) {
                 MeloXIosListRow(
                     title = currentSource.displayName,
                     subtitle = when {
-                        currentSource == MusicSource.Local -> "本地音乐库 · 无需登录"
-                        currentAccount.loggedIn && !currentAccount.accountId.isNullOrBlank() -> "已登录 · ${currentAccount.accountId}"
-                    currentAccount.loggedIn -> "已登录"
-                    else -> "未登录 · 点击登录"
+                        currentSource == MusicSource.Local -> stringResource(R.string.provider_local_no_login)
+                        currentAccount.loggedIn && !currentAccount.accountId.isNullOrBlank() -> stringResource(R.string.provider_logged_in_id, currentAccount.accountId!!)
+                    currentAccount.loggedIn -> stringResource(R.string.provider_logged_in)
+                    else -> stringResource(R.string.provider_logged_out_tap)
                 },
                 leading = { MeloXSymbolIcon(MeloXSymbol.Person, Modifier.size(25.dp), MeloXSystemColors.Red) },
                 onClick = if (currentAccount.loggedIn) null else {
@@ -326,14 +328,14 @@ fun ProviderServicesScreen(
             )
             if (currentAccount.loggedIn) {
                 MeloXIosListRow(
-                    title = "切换 / 重新登录账号",
-                    subtitle = "清除当前服务登录态后重新登录",
+                    title = stringResource(R.string.provider_switch_account),
+                    subtitle = stringResource(R.string.provider_switch_relogin_subtitle),
                     leading = { MeloXSymbolIcon(MeloXSymbol.Refresh, Modifier.size(24.dp), MeloXSystemColors.Red) },
                     onClick = { pendingAction = currentSource to ServicesAccountAction.Switch },
                 )
                 MeloXIosListRow(
-                    title = "退出 ${currentSource.displayName}",
-                    subtitle = "只清除这个服务的本机登录态",
+                    title = stringResource(R.string.provider_logout_title, currentSource.displayName),
+                    subtitle = stringResource(R.string.provider_logout_this),
                     leading = { MeloXSymbolIcon(MeloXSymbol.Xmark, Modifier.size(24.dp), MeloXSystemColors.Red) },
                     onClick = { pendingAction = currentSource to ServicesAccountAction.Logout },
                 )
@@ -342,18 +344,18 @@ fun ProviderServicesScreen(
 
         Spacer(Modifier.size(24.dp))
         if (currentSource == MusicSource.Local) {
-            ServicesSectionLabel("本地音乐库")
+            ServicesSectionLabel(stringResource(R.string.provider_local_library))
             MeloXIosGroupedList(surfaceColor = MaterialTheme.colorScheme.surface) {
                 MeloXIosListRow(
-                    title = if (localScanBusy) "正在扫描本地音乐…" else "扫描设备音乐",
-                    subtitle = "扫描 MediaStore 中的音频文件（已找到 ${localTrackCount} 首）",
+                    title = if (localScanBusy) stringResource(R.string.provider_scanning_local) else stringResource(R.string.provider_scan_device),
+                    subtitle = stringResource(R.string.provider_scan_subtitle, localTrackCount),
                     leading = { MeloXSymbolIcon(MeloXSymbol.Search, Modifier.size(24.dp), MeloXSystemColors.Red) },
                     onClick = { requestLocalScan() },
                     showTopSeparator = false,
                 )
                 MeloXIosListRow(
-                    title = "添加音乐目录",
-                    subtitle = "选择一个目录并授予持久读取权限",
+                    title = stringResource(R.string.provider_add_folder),
+                    subtitle = stringResource(R.string.provider_add_folder_subtitle),
                     leading = { MeloXSymbolIcon(MeloXSymbol.Storage, Modifier.size(24.dp), MeloXSystemColors.Red) },
                     onClick = { localTreeLauncher.launch(null) },
                     showTopSeparator = true,
@@ -361,7 +363,7 @@ fun ProviderServicesScreen(
                 localScanMessage?.let { message ->
                     MeloXIosListRow(
                         title = message,
-                        subtitle = "本地文件仍由设备直接播放，不会上传音频",
+                        subtitle = stringResource(R.string.provider_local_stays_local),
                         leading = { Spacer(Modifier.width(25.dp)) },
                         onClick = null,
                         showTopSeparator = true,
@@ -369,10 +371,10 @@ fun ProviderServicesScreen(
                 }
                 localRepository.scanRoots().forEach { root ->
                     MeloXIosListRow(
-                        title = "已授权目录",
+                        title = stringResource(R.string.provider_authorized_folder),
                         subtitle = root.uri,
                         leading = { Spacer(Modifier.width(25.dp)) },
-                        detail = "移除",
+                        detail = stringResource(R.string.provider_remove),
                         onClick = {
                             localRepository.removeScanRoot(root.uri)
                             runCatching { context.contentResolver.releasePersistableUriPermission(Uri.parse(root.uri), root.persistedFlags) }
@@ -384,18 +386,18 @@ fun ProviderServicesScreen(
             }
             Spacer(Modifier.size(24.dp))
         }
-        ServicesSectionLabel("第三方音乐源")
+        ServicesSectionLabel(stringResource(R.string.provider_third_party))
         MeloXIosGroupedList(surfaceColor = MaterialTheme.colorScheme.surface) {
             MeloXIosListRow(
                 title = "Jellyfin",
-                subtitle = if (accountManager.state(MusicSource.Jellyfin).loggedIn) "已连接 · 点击管理" else "连接自建 Jellyfin 音乐服务器",
+                subtitle = if (accountManager.state(MusicSource.Jellyfin).loggedIn) stringResource(R.string.provider_jellyfin_connected) else stringResource(R.string.provider_jellyfin_connect_hint),
                 leading = { MeloXSymbolIcon(MeloXSymbol.Devices, Modifier.size(24.dp), MeloXSystemColors.Red) },
                 onClick = { jellyfinError = null; showJellyfinDialog = true },
                 showTopSeparator = false,
             )
             MeloXIosListRow(
-                title = "开启第三方音乐源设置",
-                subtitle = "需要先同意第三方音乐源使用协议；不受云控管理",
+                title = stringResource(R.string.provider_enable_third_party),
+                subtitle = stringResource(R.string.provider_third_party_consent_hint),
                 leading = { MeloXSymbolIcon(MeloXSymbol.Info, Modifier.size(24.dp), MeloXSystemColors.Red) },
                 trailing = {
                     MeloXGlassToggle(
@@ -413,8 +415,8 @@ fun ProviderServicesScreen(
             )
             if (thirdPartySourcesEnabled) {
                 MeloXIosListRow(
-                    title = "遇到会员歌曲时再调用",
-                    subtitle = "优先使用官方音源，仅在会员/版权受限时尝试第三方解析",
+                    title = stringResource(R.string.provider_membership_fallback),
+                    subtitle = stringResource(R.string.provider_membership_fallback_subtitle),
                     leading = { Spacer(Modifier.width(25.dp)) },
                     trailing = {
                         MeloXGlassToggle(
@@ -428,14 +430,14 @@ fun ProviderServicesScreen(
                     showTopSeparator = false,
                 )
                 MeloXIosListRow(
-                    title = "CHKSZ解析源",
-                    subtitle = if (chkszApiKey.isBlank()) "未配置 API Key · 点击配置" else "CHKSZ API Key 已配置",
+                    title = stringResource(R.string.provider_chksz),
+                    subtitle = if (chkszApiKey.isBlank()) stringResource(R.string.provider_chksz_missing) else stringResource(R.string.provider_chksz_configured),
                     leading = { Spacer(Modifier.width(25.dp)) },
                     onClick = { showChkszKeyDialog = true },
                 )
                 MeloXIosListRow(
-                    title = "查看第三方音乐源使用协议",
-                    subtitle = "查看责任范围、内容合规和服务可用性说明",
+                    title = stringResource(R.string.provider_view_third_party_terms),
+                    subtitle = stringResource(R.string.provider_third_party_terms_subtitle),
                     leading = { Spacer(Modifier.width(25.dp)) },
                     onClick = { showThirdPartySourceAgreement = true },
                 )
@@ -444,11 +446,11 @@ fun ProviderServicesScreen(
 
         if (thirdPartySourcesEnabled) {
             Spacer(Modifier.size(24.dp))
-            ServicesSectionLabel("已添加音乐源")
+            ServicesSectionLabel(stringResource(R.string.provider_added_sources))
             MeloXIosGroupedList(surfaceColor = MaterialTheme.colorScheme.surface) {
                 MeloXIosListRow(
-                    title = "添加音乐源",
-                    subtitle = "导入 LX Music 兼容的 JavaScript 音乐源",
+                    title = stringResource(R.string.provider_add_source),
+                    subtitle = stringResource(R.string.provider_add_source_subtitle),
                     leading = { MeloXSymbolIcon(MeloXSymbol.Plus, Modifier.size(24.dp), MeloXSystemColors.Red) },
                     onClick = { showLxImportDialog = true; lxImportError = null },
                     showTopSeparator = false,
@@ -459,9 +461,9 @@ fun ProviderServicesScreen(
                         subtitle = listOfNotNull(
                             source.metadata.version?.let { "v$it" },
                             source.metadata.author,
-                            source.metadata.expirationTime?.takeIf { it.isNotBlank() }?.let { "到期 $it" },
+                            source.metadata.expirationTime?.takeIf { it.isNotBlank() }?.let { stringResource(R.string.provider_expires, it) },
                         ).joinToString(" · "),
-                        detail = "删除",
+                        detail = stringResource(R.string.provider_delete),
                         leading = { Spacer(Modifier.width(25.dp)) },
                         onClick = {
                             LxUserSourceStore.remove(context, source.id)
@@ -473,11 +475,11 @@ fun ProviderServicesScreen(
         }
 
         Spacer(Modifier.size(24.dp))
-        ServicesSectionLabel("跨平台搜索")
+        ServicesSectionLabel(stringResource(R.string.provider_cross_search))
         MeloXIosGroupedList(surfaceColor = MaterialTheme.colorScheme.surface) {
             MeloXIosListRow(
-                title = "跨平台音乐聚合",
-                subtitle = "默认关闭；只请求你明确勾选的平台",
+                title = stringResource(R.string.provider_unified_title),
+                subtitle = stringResource(R.string.provider_unified_subtitle),
                 leading = { MeloXSymbolIcon(MeloXSymbol.Apps, Modifier.size(24.dp), MeloXSystemColors.Red) },
                 trailing = {
                     MeloXGlassToggle(
@@ -496,8 +498,8 @@ fun ProviderServicesScreen(
                     val account = accountManager.state(source)
                     MeloXIosListRow(
                         title = source.displayName,
-                        subtitle = if (account.loggedIn) "已登录 · 参与聚合搜索" else "未登录 · 不参与请求",
-                        detail = if (source in unifiedSources) "已启用" else "",
+                        subtitle = if (account.loggedIn) stringResource(R.string.provider_unified_participates) else stringResource(R.string.provider_unified_skipped),
+                        detail = if (source in unifiedSources) stringResource(R.string.provider_enabled) else "",
                         leading = { Spacer(Modifier.width(25.dp)) },
                         onClick = {
                             unifiedSources = MusicProviderSelectionStore.setUnifiedSourceEnabled(
@@ -513,14 +515,14 @@ fun ProviderServicesScreen(
     pendingAction?.let { (source, action) ->
         val isLogout = action == ServicesAccountAction.Logout
         MeloXGlassDialog(visible = true, onDismiss = { pendingAction = null }) {
-            Text(if (isLogout) "退出 ${source.displayName}？" else "切换 ${source.displayName} 账号？", style = MaterialTheme.typography.titleLarge)
+            Text(if (isLogout) stringResource(R.string.provider_logout_confirm, source.displayName) else stringResource(R.string.provider_switch_confirm, source.displayName), style = MaterialTheme.typography.titleLarge)
             Text(
-                if (isLogout) "只会清除 MeloX 本机保存的该平台登录态。" else "会先清除当前账号，再重新打开登录流程。",
+                if (isLogout) stringResource(R.string.provider_logout_short_body) else stringResource(R.string.provider_switch_short_body),
                 modifier = Modifier.padding(top = 8.dp),
                 color = MaterialTheme.colorScheme.onSurface.copy(alpha = .62f),
             )
             Row(Modifier.fillMaxWidth().padding(top = 18.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                MeloXGlassButton(onClick = { pendingAction = null }, modifier = Modifier.weight(1f), style = MeloXGlassButtonStyle.Plain) { Text("取消") }
+                MeloXGlassButton(onClick = { pendingAction = null }, modifier = Modifier.weight(1f), style = MeloXGlassButtonStyle.Plain) { Text(stringResource(R.string.action_cancel)) }
                 MeloXGlassButton(
                     onClick = {
                         if (isLogout) accountManager.logout(source) else accountManager.prepareAccountSwitch(source)
@@ -543,7 +545,7 @@ fun ProviderServicesScreen(
                     },
                     modifier = Modifier.weight(1f),
                     style = if (isLogout) MeloXGlassButtonStyle.Destructive else MeloXGlassButtonStyle.BorderedProminent,
-                ) { Text(if (isLogout) "退出" else "继续") }
+                ) { Text(if (isLogout) stringResource(R.string.provider_logout) else stringResource(R.string.provider_continue)) }
             }
         }
     }
@@ -566,9 +568,9 @@ fun ProviderServicesScreen(
     }
     if (showLxImportDialog) {
         MeloXGlassDialog(visible = true, onDismiss = { showLxImportDialog = false }) {
-            Text("导入 LX Music 音乐源", style = MaterialTheme.typography.titleLarge)
+            Text(stringResource(R.string.provider_import_lx), style = MaterialTheme.typography.titleLarge)
             Text(
-                "支持本地 JavaScript 文件或在线脚本地址。脚本将在受限运行时中执行，导入前请确认来源可信。",
+                stringResource(R.string.provider_import_lx_hint),
                 modifier = Modifier.padding(top = 8.dp),
                 color = MaterialTheme.colorScheme.onSurface.copy(alpha = .62f),
                 fontSize = 13.sp,
@@ -580,7 +582,7 @@ fun ProviderServicesScreen(
                 onClick = { lxFileLauncher.launch(arrayOf("*/*")) },
                 modifier = Modifier.fillMaxWidth().padding(top = 14.dp),
                 style = MeloXGlassButtonStyle.BorderedProminent,
-            ) { Text("从本地文件导入") }
+            ) { Text(stringResource(R.string.provider_import_local)) }
             MeloXGlassTextField(
                 value = lxImportUrl,
                 onValueChange = { lxImportUrl = it },
@@ -596,17 +598,17 @@ fun ProviderServicesScreen(
                     onClick = { showLxImportDialog = false },
                     modifier = Modifier.weight(1f),
                     style = MeloXGlassButtonStyle.Plain,
-                ) { Text("取消") }
+                ) { Text(stringResource(R.string.action_cancel)) }
                 MeloXGlassButton(
                     onClick = {
                         val url = lxImportUrl.trim()
                         scope.launch {
                             runCatching {
-                                require(url.startsWith("https://") || url.startsWith("http://")) { "请输入有效的 HTTP(S) 地址" }
+                                require(url.startsWith("https://") || url.startsWith("http://")) { context.getString(R.string.provider_invalid_http) }
                                 val script = withContext(Dispatchers.IO) {
                                     val request = okhttp3.Request.Builder().url(url).build()
                                     com.lladlam.melox.core.network.MeloXHttpClient.shared.newCall(request).execute().use { response ->
-                                        if (!response.isSuccessful) error("下载失败：HTTP ${response.code}")
+                                        if (!response.isSuccessful) error(context.getString(R.string.provider_download_failed, response.code))
                                         response.body.string()
                                     }
                                 }
@@ -615,47 +617,47 @@ fun ProviderServicesScreen(
                                 lxSources = LxUserSourceStore.list(context)
                                 lxImportUrl = ""
                                 showLxImportDialog = false
-                            }.onFailure { lxImportError = it.message ?: "导入音乐源失败" }
+                            }.onFailure { lxImportError = it.message ?: context.getString(R.string.provider_import_failed) }
                         }
                     },
                     modifier = Modifier.weight(1f),
                     style = MeloXGlassButtonStyle.BorderedProminent,
-                ) { Text("导入") }
+                ) { Text(stringResource(R.string.provider_import)) }
             }
         }
     }
     if (showJellyfinDialog) {
         MeloXGlassDialog(visible = true, onDismiss = { if (!jellyfinBusy) showJellyfinDialog = false }) {
-            Text("连接 Jellyfin", style = MaterialTheme.typography.titleLarge)
-            Text("输入你的 Jellyfin 服务器和音乐账号。登录信息只保存在本机。", modifier = Modifier.padding(top = 8.dp), color = MaterialTheme.colorScheme.onSurface.copy(alpha = .62f), fontSize = 13.sp, lineHeight = 19.sp)
+            Text(stringResource(R.string.provider_connect_jellyfin), style = MaterialTheme.typography.titleLarge)
+            Text(stringResource(R.string.provider_jellyfin_hint), modifier = Modifier.padding(top = 8.dp), color = MaterialTheme.colorScheme.onSurface.copy(alpha = .62f), fontSize = 13.sp, lineHeight = 19.sp)
             MeloXGlassTextField(jellyfinServerUrl, { jellyfinServerUrl = it }, Modifier.fillMaxWidth().padding(top = 12.dp), placeholder = { Text("https://music.example.com") }, singleLine = true)
-            MeloXGlassTextField(jellyfinUsername, { jellyfinUsername = it }, Modifier.fillMaxWidth().padding(top = 10.dp), placeholder = { Text("用户名") }, singleLine = true)
-            MeloXGlassTextField(jellyfinPassword, { jellyfinPassword = it }, Modifier.fillMaxWidth().padding(top = 10.dp), placeholder = { Text("密码") }, singleLine = true)
+            MeloXGlassTextField(jellyfinUsername, { jellyfinUsername = it }, Modifier.fillMaxWidth().padding(top = 10.dp), placeholder = { Text(stringResource(R.string.provider_username)) }, singleLine = true)
+            MeloXGlassTextField(jellyfinPassword, { jellyfinPassword = it }, Modifier.fillMaxWidth().padding(top = 10.dp), placeholder = { Text(stringResource(R.string.provider_password)) }, singleLine = true)
             jellyfinError?.let { Text(it, Modifier.padding(top = 7.dp), color = MaterialTheme.colorScheme.error, fontSize = 12.sp) }
             Row(Modifier.fillMaxWidth().padding(top = 14.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                MeloXGlassButton(onClick = { JellyfinSessionStore.clear(context); showJellyfinDialog = false }, modifier = Modifier.weight(1f), style = MeloXGlassButtonStyle.Plain) { Text("退出") }
+                MeloXGlassButton(onClick = { JellyfinSessionStore.clear(context); showJellyfinDialog = false }, modifier = Modifier.weight(1f), style = MeloXGlassButtonStyle.Plain) { Text(stringResource(R.string.provider_logout)) }
                 MeloXGlassButton(
                     onClick = {
                         jellyfinBusy = true
                         scope.launch {
                             runCatching {
-                                require(jellyfinServerUrl.trim().startsWith("http://") || jellyfinServerUrl.trim().startsWith("https://")) { "请输入有效的服务器地址" }
-                                require(jellyfinUsername.isNotBlank()) { "请输入用户名" }
+                                require(jellyfinServerUrl.trim().startsWith("http://") || jellyfinServerUrl.trim().startsWith("https://")) { context.getString(R.string.provider_invalid_server) }
+                                require(jellyfinUsername.isNotBlank()) { context.getString(R.string.provider_username_required) }
                                 JellyfinApiClient(com.lladlam.melox.core.network.MeloXHttpClient.shared).authenticate(jellyfinServerUrl.trim(), jellyfinUsername.trim(), jellyfinPassword).also { JellyfinSessionStore.write(context, it) }
                             }.onSuccess { jellyfinPassword = ""; jellyfinBusy = false; loginRevision++; showJellyfinDialog = false }
-                                .onFailure { jellyfinBusy = false; jellyfinError = it.message ?: "Jellyfin 登录失败" }
+                                .onFailure { jellyfinBusy = false; jellyfinError = it.message ?: context.getString(R.string.provider_jellyfin_failed) }
                         }
                     },
                     modifier = Modifier.weight(1f), style = MeloXGlassButtonStyle.BorderedProminent,
-                ) { Text(if (jellyfinBusy) "连接中…" else "连接") }
+                ) { Text(if (jellyfinBusy) stringResource(R.string.provider_connecting) else stringResource(R.string.provider_connect)) }
             }
         }
     }
     if (showChkszKeyDialog) {
         MeloXGlassDialog(visible = true, onDismiss = { showChkszKeyDialog = false }) {
-            Text("网易云 SVIP 音乐解析", style = MaterialTheme.typography.titleLarge)
+            Text(stringResource(R.string.provider_chksz_title), style = MaterialTheme.typography.titleLarge)
             Text(
-                "使用 api.chksz.com 的网易云、QQ音乐和酷狗音乐解析接口。请先前往 api.chksz.com 注册账号并在登录后获取个人 API Key；目前该服务仅支持 LinuxDo 用户注册。API Key 仅保存在本机，不属于 MeloX 云控。",
+                stringResource(R.string.provider_chksz_body),
                 modifier = Modifier.padding(top = 8.dp),
                 color = MaterialTheme.colorScheme.onSurface.copy(alpha = .62f),
                 fontSize = 13.sp,
@@ -665,7 +667,7 @@ fun ProviderServicesScreen(
                 value = chkszApiKey,
                 onValueChange = { chkszApiKey = it },
                 modifier = Modifier.fillMaxWidth().padding(top = 12.dp),
-                placeholder = { Text("请输入个人 API Key") },
+                placeholder = { Text(stringResource(R.string.provider_api_key_placeholder)) },
             )
             Row(Modifier.fillMaxWidth().padding(top = 14.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                 MeloXGlassButton(
@@ -676,7 +678,7 @@ fun ProviderServicesScreen(
                     },
                     modifier = Modifier.weight(1f),
                     style = MeloXGlassButtonStyle.Plain,
-                ) { Text("清除") }
+                ) { Text(stringResource(R.string.provider_clear)) }
                 MeloXGlassButton(
                     onClick = {
                         ChkszApiKeyStore.write(context, chkszApiKey)
@@ -685,9 +687,22 @@ fun ProviderServicesScreen(
                     },
                     modifier = Modifier.weight(1f),
                     style = MeloXGlassButtonStyle.BorderedProminent,
-                ) { Text("保存") }
+                ) { Text(stringResource(R.string.provider_save)) }
             }
         }
+    }
+}
+
+private fun persistableTreeFlags(context: Context, uri: Uri): Int {
+    val resolver = context.contentResolver
+    val readWrite = Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION
+    val readOnly = Intent.FLAG_GRANT_READ_URI_PERMISSION
+    return runCatching {
+        resolver.takePersistableUriPermission(uri, readWrite)
+        readWrite
+    }.getOrElse {
+        resolver.takePersistableUriPermission(uri, readOnly)
+        readOnly
     }
 }
 

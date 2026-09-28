@@ -32,11 +32,13 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil3.compose.AsyncImage
+import com.lladlam.melox.R
 import com.lladlam.melox.core.account.NeteaseSessionStore
 import com.lladlam.melox.core.network.MeloXCloudSong
 import com.lladlam.melox.core.network.NeteaseUniversalSearchClient
@@ -92,10 +94,10 @@ fun MeloXCloudMusicScreen(
             .onSuccess { page ->
                 values = page.values
                 quota = if (page.maxBytes > 0L) {
-                    "${formatBytes(page.usedBytes)} / ${formatBytes(page.maxBytes)} · ${page.totalCount} 首"
-                } else "${page.totalCount} 首"
+                    app.getString(R.string.cloud_song_count, formatBytes(page.usedBytes), formatBytes(page.maxBytes), page.totalCount)
+                } else app.getString(R.string.cloud_song_total, page.totalCount)
             }
-            .onFailure { error = it.message ?: "云盘加载失败" }
+            .onFailure { error = it.message ?: app.getString(R.string.cloud_load_failed) }
         loading = false
     }
 
@@ -106,7 +108,7 @@ fun MeloXCloudMusicScreen(
             error = null
             runCatching { client.uploadCloudSong(app, uri) }
                 .onSuccess { refresh() }
-                .onFailure { error = it.message ?: "云盘上传失败" }
+                .onFailure { error = it.message ?: app.getString(R.string.cloud_upload_failed) }
             uploading = false
         }
     }
@@ -118,9 +120,9 @@ fun MeloXCloudMusicScreen(
             visible = true,
             onDismiss = { pendingDelete = null },
         ) {
-            Text("从音乐云盘删除？", style = MeloXTypography.title2)
+            Text(stringResource(R.string.cloud_delete_title), style = MeloXTypography.title2)
             Text(
-                "将从网易云音乐账号中删除《${target.song.name}》。",
+                stringResource(R.string.cloud_delete_body, target.song.name),
                 modifier = Modifier.padding(top = 8.dp),
                 color = MaterialTheme.colorScheme.onSurface.copy(alpha = .62f),
             )
@@ -132,19 +134,19 @@ fun MeloXCloudMusicScreen(
                     onClick = { pendingDelete = null },
                     modifier = Modifier.weight(1f),
                     style = MeloXGlassButtonStyle.Plain,
-                ) { Text("取消") }
+                ) { Text(stringResource(R.string.action_cancel)) }
                 MeloXGlassButton(
                     onClick = {
                     pendingDelete = null
                     scope.launch {
                         runCatching { client.deleteCloudSong(target.id) }
                             .onSuccess { values = values.filterNot { it.id == target.id } }
-                            .onFailure { error = it.message ?: "云盘删除失败" }
+                            .onFailure { error = it.message ?: app.getString(R.string.cloud_delete_failed) }
                     }
                     },
                     modifier = Modifier.weight(1f),
                     style = MeloXGlassButtonStyle.Destructive,
-                ) { Text("删除") }
+                ) { Text(stringResource(R.string.provider_delete)) }
             }
         }
     }
@@ -166,11 +168,11 @@ fun MeloXCloudMusicScreen(
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Text(
-                    if (uploading) "上传中…" else "上传",
+                    if (uploading) stringResource(R.string.cloud_uploading) else stringResource(R.string.cloud_upload),
                     color = MaterialTheme.colorScheme.primary,
                     modifier = Modifier.clickable(enabled = !uploading) { uploadLauncher.launch("audio/*") }.padding(10.dp),
                 )
-                Text("刷新", color = MaterialTheme.colorScheme.primary, modifier = Modifier.clickable { scope.launch { refresh() } }.padding(10.dp))
+                Text(stringResource(R.string.action_refresh), color = MaterialTheme.colorScheme.primary, modifier = Modifier.clickable { scope.launch { refresh() } }.padding(10.dp))
             }
         } else {
             Row(
@@ -179,18 +181,18 @@ fun MeloXCloudMusicScreen(
             ) {
                 Column(Modifier.weight(1f)) {
                     MeloXIosTopBar(
-                        title = "音乐云盘",
+                        title = stringResource(R.string.cloud_title),
                         subtitle = quota,
                         modifier = Modifier.padding(horizontal = 0.dp),
                         contentPadding = PaddingValues(horizontal = 0.dp),
                     )
                 }
                 Text(
-                    if (uploading) "上传中…" else "上传",
+                    if (uploading) stringResource(R.string.cloud_uploading) else stringResource(R.string.cloud_upload),
                     color = MaterialTheme.colorScheme.primary,
                     modifier = Modifier.clickable(enabled = !uploading) { uploadLauncher.launch("audio/*") }.padding(10.dp),
                 )
-                Text("刷新", color = MaterialTheme.colorScheme.primary, modifier = Modifier.clickable { scope.launch { refresh() } }.padding(10.dp))
+                Text(stringResource(R.string.action_refresh), color = MaterialTheme.colorScheme.primary, modifier = Modifier.clickable { scope.launch { refresh() } }.padding(10.dp))
             }
         }
         Box(
@@ -199,7 +201,7 @@ fun MeloXCloudMusicScreen(
                 surfaceColor = MaterialTheme.colorScheme.onBackground.copy(alpha = .055f),
             ).padding(horizontal = 14.dp, vertical = 11.dp),
         ) {
-            if (query.isBlank()) Text("搜索全部云盘歌曲", color = MaterialTheme.colorScheme.onSurface.copy(alpha = .4f))
+            if (query.isBlank()) Text(stringResource(R.string.cloud_search), color = MaterialTheme.colorScheme.onSurface.copy(alpha = .4f))
             BasicTextField(query, { query = it }, singleLine = true, modifier = Modifier.fillMaxWidth())
         }
         when {
@@ -208,7 +210,7 @@ fun MeloXCloudMusicScreen(
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
                     Text(error.orEmpty(), color = MaterialTheme.colorScheme.error)
                     Text(
-                        "重试",
+                        stringResource(R.string.account_retry),
                         color = MaterialTheme.colorScheme.primary,
                         modifier = Modifier.padding(top = 12.dp).clickable { scope.launch { refresh() } },
                     )
@@ -238,10 +240,10 @@ fun MeloXCloudMusicScreen(
                             Text(item.song.name, maxLines = 1, overflow = TextOverflow.Ellipsis, fontWeight = FontWeight.SemiBold)
                             Text("${item.song.artists} · ${formatBytes(item.fileSize)}", maxLines = 1, overflow = TextOverflow.Ellipsis, fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurface.copy(alpha = .5f))
                         }
-                        Text("删除", color = MaterialTheme.colorScheme.error, fontSize = 12.sp, modifier = Modifier.clickable { pendingDelete = item }.padding(10.dp))
+                        Text(stringResource(R.string.provider_delete), color = MaterialTheme.colorScheme.error, fontSize = 12.sp, modifier = Modifier.clickable { pendingDelete = item }.padding(10.dp))
                     }
                 }
-                if (displayed.isEmpty()) item { Text("音乐云盘是空的", modifier = Modifier.fillMaxWidth().padding(36.dp), color = MaterialTheme.colorScheme.onSurface.copy(alpha = .5f)) }
+                if (displayed.isEmpty()) item { Text(stringResource(R.string.cloud_empty), modifier = Modifier.fillMaxWidth().padding(36.dp), color = MaterialTheme.colorScheme.onSurface.copy(alpha = .5f)) }
                 error?.let { item { Text(it, color = MaterialTheme.colorScheme.error, fontSize = 12.sp) } }
             }
         }

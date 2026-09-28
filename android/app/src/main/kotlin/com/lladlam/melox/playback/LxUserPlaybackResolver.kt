@@ -67,14 +67,13 @@ class LxUserPlaybackResolver(
         for (record in LxUserSourceStore.list(appContext)) {
             val script = LxUserSourceStore.script(appContext, record.id) ?: continue
             val result = runCatching {
-                LxUserRuntime().use { runtime ->
-                    runtime.load(LxUserScript(script))
-                    runtime.callAction(action, song + mapOf(
+                val runtime = LxUserRuntime.session(record.id, script)
+                if (!runtime.supportsAction(sourceCode, action)) return@runCatching null
+                runtime.callAction(action, song + mapOf(
                         "source" to sourceCode,
                         "type" to "128k",
                         "musicInfo" to song,
                     ))
-                }
             }.onFailure { error ->
                 Log.w(TAG, "LX $action failed script=${record.id} detail=${error.safeLogMessage()}")
             }.getOrNull()
@@ -153,11 +152,10 @@ class LxUserPlaybackResolver(
             val script = LxUserSourceStore.script(appContext, record.id) ?: continue
             var phase = "load"
                     runCatching {
-                LxUserRuntime().use { runtime ->
-                    runtime.load(LxUserScript(script))
+                val runtime = LxUserRuntime.session(record.id, script)
                     phase = "request"
                     (sourceCode?.let(::listOf) ?: listOf("kw", "kg", "tx", "wy", "mg"))
-                        .filter { runtime.supportsSource(it) }
+                        .filter { runtime.supportsSource(it) && runtime.supportsAction(it, "musicUrl") }
                         .flatMap { source ->
                             lxQualityFallbacks(lxQuality).asSequence().map { requestedQuality -> source to requestedQuality }
                         }
@@ -186,7 +184,6 @@ class LxUserPlaybackResolver(
                             }
                         }
                         .firstOrNull() ?: throw IOException("LX 音乐源没有返回可播放链接")
-                }
                     }.onSuccess {
                 Log.i(TAG, "LX resolved source=${track.id.source.storageValue} script=${record.id}")
                 return it
@@ -249,8 +246,8 @@ class LxUserPlaybackResolver(
         for (record in LxUserSourceStore.list(appContext)) {
             val script = LxUserSourceStore.script(appContext, record.id) ?: continue
             val result = runCatching {
-                LxUserRuntime().use { runtime ->
-                    runtime.load(LxUserScript(script))
+                val runtime = LxUserRuntime.session(record.id, script)
+                    if (!runtime.supportsAction("wy", "musicUrl")) return@runCatching null
                     lxQualityFallbacks(quality.toLxQuality()).asSequence().mapNotNull { requestedQuality ->
                         val sourceQuality = runtime.qualityFor("wy", requestedQuality)
                         val response = runCatching {
@@ -267,7 +264,6 @@ class LxUserPlaybackResolver(
                         }?.takeIf { it.startsWith("http://") || it.startsWith("https://") }
                         url?.let { LxUserPlaybackResult(record.id, it) }
                     }.firstOrNull()
-                }
             }.getOrNull()
             if (result != null) return result
         }

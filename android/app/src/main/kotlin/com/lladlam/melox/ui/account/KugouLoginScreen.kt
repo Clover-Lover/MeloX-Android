@@ -31,10 +31,12 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.lladlam.melox.R
 import com.google.zxing.BarcodeFormat
 import com.google.zxing.EncodeHintType
 import com.google.zxing.qrcode.QRCodeWriter
@@ -54,14 +56,15 @@ fun KugouLoginScreen(
     onLoggedIn: () -> Unit,
     targetSlot: PlaybackAccountSlot = PlaybackAccountSlot.Main,
 ) {
-    val context = LocalContext.current.applicationContext
+    val activityContext = LocalContext.current
+    val context = activityContext.applicationContext
     val client = remember {
         KugouLoginClient(
             sessionProvider = { KugouSessionStore.read(context) },
         )
     }
     var qrSession by remember { mutableStateOf<KugouQrLoginSession?>(null) }
-    var stateText by remember { mutableStateOf("正在生成登录二维码…") }
+    var stateText by remember { mutableStateOf(activityContext.getString(R.string.account_kugou_generating)) }
     var error by remember { mutableStateOf<String?>(null) }
     var refreshToken by remember { mutableStateOf(0) }
 
@@ -69,23 +72,23 @@ fun KugouLoginScreen(
 
     LaunchedEffect(refreshToken) {
         error = null
-        stateText = "正在生成登录二维码…"
+        stateText = activityContext.getString(R.string.account_kugou_generating)
         val created = runCatching { client.createQrSession() }
-            .onFailure { error = it.message ?: "生成酷狗登录二维码失败" }
+            .onFailure { error = it.message ?: activityContext.getString(R.string.account_kugou_qr_failed) }
             .getOrNull() ?: return@LaunchedEffect
         qrSession = created
-        stateText = "请使用酷狗音乐 App 扫码登录"
+        stateText = activityContext.getString(R.string.account_kugou_scan)
 
         while (true) {
             delay(1_500)
             val state = runCatching { client.checkQrSession(created.key) }
-                .onFailure { error = it.message ?: "检查酷狗登录状态失败" }
+                .onFailure { error = it.message ?: activityContext.getString(R.string.account_kugou_status_failed) }
                 .getOrNull() ?: continue
             when (state) {
-                KugouQrLoginState.Waiting -> stateText = "等待扫码…"
-                KugouQrLoginState.Scanned -> stateText = "已扫码，请在酷狗音乐中确认登录"
+                KugouQrLoginState.Waiting -> stateText = activityContext.getString(R.string.account_waiting_scan)
+                KugouQrLoginState.Scanned -> stateText = activityContext.getString(R.string.account_kugou_scanned)
                 KugouQrLoginState.Expired -> {
-                    stateText = "二维码已过期"
+                    stateText = activityContext.getString(R.string.account_qr_expired)
                     return@LaunchedEffect
                 }
                 is KugouQrLoginState.Authorized -> {
@@ -97,11 +100,11 @@ fun KugouLoginScreen(
                         vipType = state.vipType,
                         playback = targetSlot == PlaybackAccountSlot.Playback,
                     )
-                    stateText = "登录成功"
+                    stateText = activityContext.getString(R.string.account_login_success)
                     onLoggedIn()
                     return@LaunchedEffect
                 }
-                is KugouQrLoginState.Unknown -> stateText = "等待酷狗音乐确认（${state.status}）"
+                is KugouQrLoginState.Unknown -> stateText = activityContext.getString(R.string.account_kugou_waiting_status, state.status)
             }
         }
     }
@@ -120,7 +123,7 @@ fun KugouLoginScreen(
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Text(
-                text = "取消",
+                text = stringResource(R.string.action_cancel),
                 modifier = Modifier
                     .meloXLiquidButton(
                         shape = RoundedCornerShape(18.dp),
@@ -134,8 +137,8 @@ fun KugouLoginScreen(
                 color = Color(0xFFFF3147),
                 fontSize = 16.sp,
             )
-            Text("登录酷狗音乐", fontSize = 17.sp)
-            Text("取消", modifier = Modifier.padding(8.dp), color = Color.Transparent, fontSize = 16.sp)
+            Text(stringResource(R.string.account_login_kugou), fontSize = 17.sp)
+            Text(stringResource(R.string.action_cancel), modifier = Modifier.padding(8.dp), color = Color.Transparent, fontSize = 16.sp)
         }
 
         Box(
@@ -155,7 +158,7 @@ fun KugouLoginScreen(
                     }
                     Image(
                         bitmap = bitmap.asImageBitmap(),
-                        contentDescription = "酷狗音乐登录二维码",
+                        contentDescription = stringResource(R.string.account_kugou_qr),
                         modifier = Modifier
                             .size(260.dp)
                             .clip(RoundedCornerShape(24.dp))
@@ -172,7 +175,7 @@ fun KugouLoginScreen(
                 )
                 Spacer(Modifier.size(8.dp))
                 Text(
-                    text = "登录凭证仅保存在本机，不会上传到 MeloX 服务器。",
+                    text = stringResource(R.string.account_credentials_local),
                     fontSize = 13.sp,
                     color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.52f),
                     textAlign = TextAlign.Center,
@@ -186,10 +189,10 @@ fun KugouLoginScreen(
                         textAlign = TextAlign.Center,
                     )
                 }
-                if (stateText == "二维码已过期" || error != null) {
+                if (stateText == activityContext.getString(R.string.account_qr_expired) || error != null) {
                     Spacer(Modifier.size(18.dp))
                     Text(
-                        text = "重新生成",
+                        text = stringResource(R.string.account_regenerate),
                         color = MaterialTheme.colorScheme.primary,
                         fontWeight = FontWeight.SemiBold,
                         modifier = Modifier

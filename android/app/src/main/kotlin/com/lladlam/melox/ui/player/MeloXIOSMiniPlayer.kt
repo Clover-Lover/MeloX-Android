@@ -56,6 +56,8 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.res.stringResource
+import com.lladlam.melox.R
 import androidx.compose.ui.text.PlatformTextStyle
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
@@ -391,7 +393,7 @@ fun MeloXIOSMiniPlayer(
                     verticalArrangement = Arrangement.Center,
                 ) {
                     Text(
-                        text = shownTitle.ifBlank { "正在播放" },
+                        text = shownTitle.ifBlank { stringResource(R.string.player_now_playing) },
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
                         fontSize = titleFontSize,

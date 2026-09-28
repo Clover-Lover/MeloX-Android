@@ -28,6 +28,9 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.stringResource
+import com.lladlam.melox.core.lyrics.MeloXLyricScript
+import com.lladlam.melox.core.lyrics.MeloXLyricScriptConverter
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -35,6 +38,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
+import com.lladlam.melox.R
 import com.lladlam.melox.ui.glass.MeloXGlassButton
 import com.lladlam.melox.ui.glass.MeloXGlassButtonStyle
 import com.lladlam.melox.ui.glass.MeloXGlassDialog
@@ -45,13 +49,16 @@ import com.lladlam.melox.ui.glass.MeloXSystemColors
 const val MELOX_LEGAL_VERSION = "1.2-2026-08-27"
 
 enum class MeloXLegalDocument(
-    val title: String,
+    val titleRes: Int,
     internal val assetPath: String,
 ) {
-    PrivacyPolicy("隐私政策", "legal/privacy-policy-zh-CN.md"),
-    Disclaimer("免责声明与使用须知", "legal/disclaimer-zh-CN.md"),
-    CloudControlPrivacy("云控隐私协议", "legal/cloud-control-privacy-zh-CN.md"),
-    ThirdPartyMusicSources("第三方音乐源使用协议", "legal/third-party-music-sources-zh-CN.md"),
+    PrivacyPolicy(R.string.legal_privacy, "legal/privacy-policy-zh-CN.md"),
+    Disclaimer(R.string.settings_legal_disclaimer, "legal/disclaimer-zh-CN.md"),
+    CloudControlPrivacy(R.string.legal_cloud, "legal/cloud-control-privacy-zh-CN.md"),
+    ThirdPartyMusicSources(R.string.settings_legal_third_party, "legal/third-party-music-sources-zh-CN.md"),
+    ;
+
+    fun localizedTitle(context: android.content.Context): String = context.getString(titleRes)
 }
 
 private enum class LegalBlockKind { Heading, Subheading, Paragraph, Bullet }
@@ -76,16 +83,16 @@ fun MeloXLegalLinks(
             horizontalArrangement = Arrangement.Center,
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            LegalLink("隐私政策", tint) { selectedDocument = MeloXLegalDocument.PrivacyPolicy }
+            LegalLink(stringResource(R.string.legal_privacy), tint) { selectedDocument = MeloXLegalDocument.PrivacyPolicy }
             Text(
-                text = "与",
+                text = stringResource(R.string.legal_and),
                 modifier = Modifier.padding(horizontal = 6.dp),
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 fontSize = 13.sp,
             )
-            LegalLink("免责声明", tint) { selectedDocument = MeloXLegalDocument.Disclaimer }
+            LegalLink(stringResource(R.string.legal_disclaimer), tint) { selectedDocument = MeloXLegalDocument.Disclaimer }
         }
-        LegalLink("云控隐私协议", tint) { selectedDocument = MeloXLegalDocument.CloudControlPrivacy }
+        LegalLink(stringResource(R.string.legal_cloud), tint) { selectedDocument = MeloXLegalDocument.CloudControlPrivacy }
     }
 
     selectedDocument?.let { document ->
@@ -103,16 +110,16 @@ fun MeloXThirdPartyMusicSourceConsentDialog(
 ) {
     var showPolicy by remember { mutableStateOf(false) }
     MeloXGlassDialog(visible = true, onDismiss = {}) {
-        Text("开启第三方音乐源？", style = MaterialTheme.typography.titleLarge)
+        Text(stringResource(R.string.legal_third_party_title), style = MaterialTheme.typography.titleLarge)
         Text(
-            "第三方音乐源由用户自行配置和使用，不属于 MeloX 内置音乐服务，也不在 MeloX 云控范围内。启用前请阅读并同意第三方音乐源使用协议。",
+            stringResource(R.string.legal_third_party_body),
             modifier = Modifier.padding(top = 9.dp),
             color = MaterialTheme.colorScheme.onSurface.copy(alpha = .68f),
             fontSize = 14.sp,
             lineHeight = 21.sp,
         )
         Text(
-            "查看第三方音乐源使用协议",
+            stringResource(R.string.legal_view_third_party),
             modifier = Modifier
                 .padding(top = 8.dp)
                 .clip(MaterialTheme.shapes.small)
@@ -129,12 +136,12 @@ fun MeloXThirdPartyMusicSourceConsentDialog(
                 onClick = onReject,
                 modifier = Modifier.weight(1f),
                 style = MeloXGlassButtonStyle.Plain,
-            ) { Text("不同意") }
+            ) { Text(stringResource(R.string.legal_disagree)) }
             MeloXGlassButton(
                 onClick = onAccept,
                 modifier = Modifier.weight(1f),
                 style = MeloXGlassButtonStyle.BorderedProminent,
-            ) { Text("同意并开启") }
+            ) { Text(stringResource(R.string.legal_agree_enable)) }
         }
     }
     if (showPolicy) {
@@ -166,9 +173,13 @@ fun MeloXLegalDocumentDialog(
 ) {
     val context = LocalContext.current
     val blocks = remember(document) {
-        context.assets.open(document.assetPath).bufferedReader().use { reader ->
-            parseLegalDocument(reader.readText())
+        val source = context.assets.open(document.assetPath).bufferedReader().use { it.readText() }
+        val localized = if (MeloXLyricScript.fromSystem() == MeloXLyricScript.Traditional) {
+            MeloXLyricScriptConverter.convertText(source, MeloXLyricScript.Traditional)
+        } else {
+            source
         }
+        parseLegalDocument(localized)
     }
 
     Dialog(
@@ -205,12 +216,12 @@ fun MeloXLegalDocumentDialog(
                             symbol = MeloXSymbol.Xmark,
                             modifier = Modifier.size(16.dp),
                             color = MaterialTheme.colorScheme.onSurface,
-                            contentDescription = "关闭${document.title}",
+                            contentDescription = document.localizedTitle(context),
                             iconSize = 15.sp,
                         )
                     }
                     Text(
-                        text = document.title,
+                        text = document.localizedTitle(context),
                         modifier = Modifier.weight(1f),
                         color = MaterialTheme.colorScheme.onBackground,
                         fontSize = 18.sp,
@@ -248,9 +259,9 @@ fun MeloXFirstLaunchLegalConsent(
     onOpenProject: () -> Unit,
 ) {
     MeloXGlassDialog(visible = true, onDismiss = {}) {
-        Text("欢迎使用 MeloX", style = MaterialTheme.typography.titleLarge)
+        Text(stringResource(R.string.legal_welcome), style = MaterialTheme.typography.titleLarge)
         Text(
-            text = "MeloX 是非官方开源项目。使用前请阅读并同意隐私政策与免责声明，了解账号登录、第三方服务、内容版权和本地数据处理方式。",
+            text = stringResource(R.string.legal_welcome_body),
             modifier = Modifier.padding(top = 9.dp),
             color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.68f),
             fontSize = 14.sp,
@@ -258,14 +269,14 @@ fun MeloXFirstLaunchLegalConsent(
         )
         MeloXLegalLinks(modifier = Modifier.padding(top = 10.dp))
         Text(
-            text = "点击“同意并继续”即表示你已阅读并同意以上文件。你可以随时在设置中重新查看。",
+            text = stringResource(R.string.legal_agree_note),
             modifier = Modifier.padding(top = 8.dp),
             color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.54f),
             fontSize = 12.sp,
             lineHeight = 17.sp,
         )
         Text(
-            text = "项目主页与开源许可",
+            text = stringResource(R.string.legal_project),
             modifier = Modifier
                 .align(Alignment.CenterHorizontally)
                 .clip(MaterialTheme.shapes.small)
@@ -285,12 +296,12 @@ fun MeloXFirstLaunchLegalConsent(
                 onClick = onDecline,
                 modifier = Modifier.weight(1f),
                 style = MeloXGlassButtonStyle.Plain,
-            ) { Text("不同意并退出") }
+            ) { Text(stringResource(R.string.legal_decline_exit)) }
             MeloXGlassButton(
                 onClick = onAgree,
                 modifier = Modifier.weight(1f),
                 style = MeloXGlassButtonStyle.BorderedProminent,
-            ) { Text("同意并继续") }
+            ) { Text(stringResource(R.string.legal_agree_continue)) }
         }
     }
 }

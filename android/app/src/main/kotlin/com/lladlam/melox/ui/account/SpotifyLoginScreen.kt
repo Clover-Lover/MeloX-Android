@@ -21,9 +21,11 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.lladlam.melox.R
 import com.lladlam.melox.core.network.MeloXHttpClient
 import com.lladlam.melox.core.provider.spotify.SpotifyClientConfig
 import com.lladlam.melox.core.provider.spotify.SpotifyOAuth
@@ -38,7 +40,8 @@ import kotlinx.coroutines.delay
 
 @Composable
 fun SpotifyLoginScreen(onDismiss: () -> Unit, onLoggedIn: () -> Unit) {
-    val context = LocalContext.current.applicationContext
+    val activityContext = LocalContext.current
+    val context = activityContext.applicationContext
     if (!MeloXRemoteConfigPolicy.capabilityEnabled(context, "spotify_oauth")) {
         BackHandler(onBack = onDismiss)
         Column(
@@ -46,10 +49,10 @@ fun SpotifyLoginScreen(onDismiss: () -> Unit, onLoggedIn: () -> Unit) {
                 .statusBarsPadding().padding(horizontal = 20.dp, vertical = 14.dp),
             verticalArrangement = Arrangement.spacedBy(14.dp),
         ) {
-            MeloXGlassButton(onClick = onDismiss, style = MeloXGlassButtonStyle.Plain) { Text("关闭") }
-            Text("Spotify 登录暂时不可用", fontSize = 20.sp, fontWeight = FontWeight.Bold)
+            MeloXGlassButton(onClick = onDismiss, style = MeloXGlassButtonStyle.Plain) { Text(stringResource(R.string.action_close)) }
+            Text(stringResource(R.string.account_spotify_unavailable), fontSize = 20.sp, fontWeight = FontWeight.Bold)
             Text(
-                "Spotify OAuth 接口已由远程兼容性配置临时关闭。你可以稍后更新软件或重试。",
+                stringResource(R.string.account_spotify_disabled),
                 color = MaterialTheme.colorScheme.onSurface.copy(alpha = .64f),
             )
             MeloXLegalLinks()
@@ -79,20 +82,20 @@ fun SpotifyLoginScreen(onDismiss: () -> Unit, onLoggedIn: () -> Unit) {
     ) {
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
             MeloXGlassButton(onClick = onDismiss, style = MeloXGlassButtonStyle.Plain) {
-                Text("取消", color = MeloXSystemColors.Red)
+                Text(stringResource(R.string.action_cancel), color = MeloXSystemColors.Red)
             }
-            Text("登录 Spotify", fontSize = 17.sp, fontWeight = FontWeight.SemiBold)
+            Text(stringResource(R.string.account_login_spotify), fontSize = 17.sp, fontWeight = FontWeight.SemiBold)
             Spacer(Modifier)
         }
         Text(
-            "使用系统浏览器完成 Spotify Authorization Code + PKCE 授权。MeloX 不使用 Client Secret，也不会读取 Spotify App 私有凭据。",
+            stringResource(R.string.account_spotify_hint),
             color = MaterialTheme.colorScheme.onBackground.copy(alpha = .62f),
             fontSize = 13.sp,
             lineHeight = 19.sp,
         )
         if (!configured) {
             Text(
-                "请提供 Spotify Developer App 的 Client ID；需在 Spotify Dashboard 注册 ${SpotifyOAuth.RedirectUri}。该值会保存在本机，之后可直接修改。",
+                stringResource(R.string.account_spotify_client_hint, SpotifyOAuth.RedirectUri),
                 color = MaterialTheme.colorScheme.onBackground.copy(alpha = .62f),
                 fontSize = 13.sp,
                 lineHeight = 19.sp,
@@ -101,7 +104,7 @@ fun SpotifyLoginScreen(onDismiss: () -> Unit, onLoggedIn: () -> Unit) {
                 value = clientIdInput,
                 onValueChange = { clientIdInput = it },
                 modifier = Modifier.fillMaxWidth(),
-                placeholder = { Text("输入你的 Spotify Client ID", maxLines = 1) },
+                placeholder = { Text(stringResource(R.string.account_spotify_client_placeholder), maxLines = 1) },
                 singleLine = true,
             )
             if (clientIdInput.isNotBlank()) {
@@ -112,7 +115,7 @@ fun SpotifyLoginScreen(onDismiss: () -> Unit, onLoggedIn: () -> Unit) {
                     },
                     modifier = Modifier.fillMaxWidth(),
                     style = MeloXGlassButtonStyle.Plain,
-                ) { Text("保存 Client ID") }
+                ) { Text(stringResource(R.string.account_save_client_id)) }
             }
         }
         error?.let { Text(it, color = MaterialTheme.colorScheme.error, fontSize = 13.sp) }
@@ -122,12 +125,12 @@ fun SpotifyLoginScreen(onDismiss: () -> Unit, onLoggedIn: () -> Unit) {
                     val uri = SpotifyOAuth(context, SpotifyClientConfig.effective(context), MeloXHttpClient.shared)
                         .authorizationUri()
                     context.startActivity(Intent(Intent.ACTION_VIEW, uri).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
-                }.onFailure { error = it.message ?: "无法启动 Spotify 授权" }
+                }.onFailure { error = it.message ?: activityContext.getString(R.string.account_spotify_auth_failed) }
             },
             modifier = Modifier.fillMaxWidth(),
             enabled = configured,
             style = MeloXGlassButtonStyle.BorderedProminent,
-        ) { Text("在浏览器中登录 Spotify") }
+        ) { Text(stringResource(R.string.account_spotify_browser)) }
         Spacer(Modifier.weight(1f))
         MeloXLegalLinks(tint = androidx.compose.ui.graphics.Color(0xFF1DB954))
     }

@@ -40,6 +40,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -47,6 +48,7 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil3.compose.AsyncImage
+import com.lladlam.melox.R
 import com.lladlam.melox.core.account.NeteaseSessionStore
 import com.lladlam.melox.core.network.MeloXPodcast
 import com.lladlam.melox.core.network.MeloXPodcastCategory
@@ -80,7 +82,7 @@ fun MeloXPodcastScreen(
         NeteaseUniversalSearchClient(cookieProvider = { NeteaseSessionStore.readCookie(context) })
     }
     var selectedPodcast by remember(initialPodcastId) {
-        mutableStateOf(initialPodcastId?.let { MeloXPodcast(id = it, name = "播客") })
+        mutableStateOf(initialPodcastId?.let { MeloXPodcast(id = it, name = context.getString(R.string.podcast_fallback)) })
     }
     var subscriptionGeneration by remember { mutableIntStateOf(0) }
 
@@ -161,7 +163,7 @@ private fun PodcastHome(
                 }
             }
         }.onSuccess { payload = it }
-            .onFailure { error = it.message ?: "播客加载失败" }
+            .onFailure { error = it.message ?: context.getString(R.string.podcast_load_failed) }
         loading = false
     }
 
@@ -174,7 +176,7 @@ private fun PodcastHome(
         categoryLoading = true
         runCatching { client.podcastsByCategory(category.id, offset = 0, limit = 30).values }
             .onSuccess { loaded -> if (selectedCategory?.id == category.id) categoryPodcasts = loaded }
-            .onFailure { error = it.message ?: "分类加载失败" }
+            .onFailure { error = it.message ?: context.getString(R.string.podcast_category_failed) }
         categoryLoading = false
     }
 
@@ -193,7 +195,7 @@ private fun PodcastHome(
             ) {
                 item(key = "title") {
                     Text(
-                        if (subscriptionsOnly) "订阅播客" else "播客",
+                        if (subscriptionsOnly) stringResource(R.string.podcast_subscriptions) else stringResource(R.string.podcast_fallback),
                         modifier = Modifier.padding(horizontal = 20.dp),
                         color = MaterialTheme.colorScheme.onBackground,
                         fontSize = 34.sp,
@@ -207,7 +209,7 @@ private fun PodcastHome(
                             horizontalArrangement = Arrangement.spacedBy(8.dp),
                         ) {
                             item(key = "all") {
-                                PodcastCategoryButton("为你推荐", selectedCategory == null) { selectedCategory = null }
+                                PodcastCategoryButton(stringResource(R.string.podcast_for_you), selectedCategory == null) { selectedCategory = null }
                             }
                             items(payload.categories, key = MeloXPodcastCategory::id) { category ->
                                 PodcastCategoryButton(category.name, selectedCategory?.id == category.id) {
@@ -221,15 +223,15 @@ private fun PodcastHome(
                 if (subscriptionsOnly) {
                     if (payload.subscriptions.isNotEmpty()) {
                         item(key = "subscriptions") {
-                            PodcastSection("我的订阅", payload.subscriptions, onPodcast)
+                            PodcastSection(stringResource(R.string.podcast_my_subscriptions), payload.subscriptions, onPodcast)
                         }
                     } else if (!loading) {
                         item(key = "empty-subscriptions") {
                             PodcastEmptyState(
                                 if (NeteaseSessionStore.containsMusicU(NeteaseSessionStore.readCookie(context))) {
-                                    "还没有订阅播客"
+                                    stringResource(R.string.podcast_none_subscribed)
                                 } else {
-                                    "登录网易云音乐后查看订阅播客"
+                                    stringResource(R.string.podcast_login_subscriptions)
                                 },
                             )
                         }
@@ -238,12 +240,12 @@ private fun PodcastHome(
                     item(key = "primary-section") {
                         when {
                             categoryLoading -> PodcastLoadingInline()
-                            selectedCategory != null -> PodcastSection("${selectedCategory?.name.orEmpty()}播客", categoryPodcasts, onPodcast)
-                            else -> PodcastSection("为你推荐", payload.personalized, onPodcast)
+                            selectedCategory != null -> PodcastSection(stringResource(R.string.podcast_category_title, selectedCategory?.name.orEmpty()), categoryPodcasts, onPodcast)
+                            else -> PodcastSection(stringResource(R.string.podcast_for_you), payload.personalized, onPodcast)
                         }
                     }
                     if (payload.featured.isNotEmpty()) {
-                        item(key = "featured") { PodcastSection("精选播客", payload.featured, onPodcast) }
+                        item(key = "featured") { PodcastSection(stringResource(R.string.podcast_featured), payload.featured, onPodcast) }
                     }
                 }
             }
@@ -283,7 +285,7 @@ private fun PodcastSection(title: String, podcasts: List<MeloXPodcast>, onPodcas
             fontWeight = FontWeight.SemiBold,
         )
         if (podcasts.isEmpty()) {
-            PodcastEmptyState("暂无播客")
+            PodcastEmptyState(stringResource(R.string.podcast_empty))
         } else {
             LazyRow(
                 contentPadding = PaddingValues(horizontal = 16.dp),
@@ -350,7 +352,7 @@ private fun PodcastDetail(
         }.onSuccess { (loadedPodcast, loadedPrograms) ->
             loadedPodcast?.let { podcast = it }
             programs = loadedPrograms
-        }.onFailure { error = it.message ?: "节目加载失败" }
+        }.onFailure { error = it.message ?: context.getString(R.string.podcast_episodes_failed) }
         loading = false
     }
 
@@ -364,7 +366,7 @@ private fun PodcastDetail(
             MeloXGlassButton(
                 onClick = {
                     if (!NeteaseSessionStore.containsMusicU(NeteaseSessionStore.readCookie(context))) {
-                        error = "请先登录网易云音乐后再订阅播客"
+                        error = context.getString(R.string.podcast_login_subscribe)
                     } else if (!subscribing) {
                         val desired = !podcast.subscribed
                         subscribing = true
@@ -374,7 +376,7 @@ private fun PodcastDetail(
                                     podcast = podcast.copy(subscribed = desired)
                                     onSubscriptionChanged()
                                 }
-                                .onFailure { error = it.message ?: "订阅更新失败" }
+                                .onFailure { error = it.message ?: context.getString(R.string.podcast_subscribe_failed) }
                             subscribing = false
                         }
                     }
@@ -382,7 +384,7 @@ private fun PodcastDetail(
                 enabled = !subscribing,
                 style = if (podcast.subscribed) MeloXGlassButtonStyle.BorderedProminent else MeloXGlassButtonStyle.Bordered,
                 contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp),
-            ) { Text(if (podcast.subscribed) "已订阅" else "订阅", maxLines = 1) }
+            ) { Text(stringResource(if (podcast.subscribed) R.string.podcast_subscribed else R.string.podcast_subscribe), maxLines = 1) }
         },
     ) {
         item(key = "podcast-hero") {
@@ -421,11 +423,11 @@ private fun PodcastDetail(
                         onClick = { reloadKey++ },
                         modifier = Modifier.fillMaxWidth(),
                         style = MeloXGlassButtonStyle.BorderedProminent,
-                    ) { Text("重试") }
+                    ) { Text(stringResource(R.string.account_retry)) }
                 }
             }
         }
-        if (!loading && programs.isEmpty() && error == null) item(key = "empty") { PodcastEmptyState("暂无节目") }
+        if (!loading && programs.isEmpty() && error == null) item(key = "empty") { PodcastEmptyState(stringResource(R.string.podcast_no_episodes)) }
         programs.forEach { program ->
             item(key = "program-${program.id}") {
                 PodcastProgramRow(program) {
@@ -458,7 +460,7 @@ private fun PodcastProgramRow(program: MeloXPodcastProgram, onClick: () -> Unit)
                     overflow = TextOverflow.Ellipsis,
                 )
                 Text(
-                    if (program.durationMs > 0L) "${program.durationMs / 60_000L} 分钟" else "时长未知",
+                    if (program.durationMs > 0L) stringResource(R.string.podcast_minutes, (program.durationMs / 60_000L).toInt()) else stringResource(R.string.podcast_duration_unknown),
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     style = MaterialTheme.typography.bodySmall,
                 )
@@ -483,7 +485,7 @@ private fun PodcastErrorState(message: String, onRetry: () -> Unit) {
     Box(Modifier.fillMaxSize().padding(24.dp), contentAlignment = Alignment.Center) {
         Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(12.dp)) {
             Text(message, color = MaterialTheme.colorScheme.error, textAlign = TextAlign.Center)
-            MeloXGlassButton(onRetry, style = MeloXGlassButtonStyle.BorderedProminent) { Text("重试") }
+            MeloXGlassButton(onRetry, style = MeloXGlassButtonStyle.BorderedProminent) { Text(stringResource(R.string.account_retry)) }
         }
     }
 }

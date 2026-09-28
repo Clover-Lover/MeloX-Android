@@ -11,7 +11,6 @@ import java.io.Closeable
 import java.security.KeyFactory
 import java.security.MessageDigest
 import java.security.spec.X509EncodedKeySpec
-import java.util.Base64
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.ConcurrentLinkedQueue
 import java.util.concurrent.CountDownLatch
@@ -22,7 +21,10 @@ import java.util.concurrent.atomic.AtomicReference
 import javax.crypto.Cipher
 import javax.crypto.spec.IvParameterSpec
 import javax.crypto.spec.SecretKeySpec
+import okhttp3.Call
+import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.MediaType.Companion.toMediaTypeOrNull
+import okhttp3.MultipartBody
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
@@ -55,6 +57,9 @@ class LxUserRuntime(
     private val context = createContext()
     private val requestHandlers = mutableListOf<JSFunction>()
     private val sourceQualities = mutableMapOf<String, List<String>>()
+    private val sourceActions = mutableMapOf<String, Set<String>>()
+    private val activeCalls = ConcurrentHashMap<Int, Call>()
+    private var nextCallId = 1
     private val timers = ConcurrentHashMap<Int, Pair<Long, JSCallFunction>>()
     private var nextTimerId = 1
     private val closed = AtomicBoolean(false)
@@ -73,7 +78,10 @@ class LxUserRuntime(
         installGlobals()
     }
 
+    private var loaded = false
+
     fun load(script: LxUserScript): LxUserScriptMetadata {
+        if (loaded) return script.metadata
         val info = script.metadata
         Log.d(TAG, "load start name=${info.name.orEmpty()} bytes=${script.source.toByteArray().size}")
         context.evaluate("var module = { exports: {} }; var exports = module.exports;", "lx-module.js")
@@ -91,6 +99,7 @@ class LxUserRuntime(
         // v5 sources commonly fetch remote configuration before registering the
         // request listener. Drain that initialization before the first action.
         drainScriptInitialization()
+        loaded = true
         Log.d(TAG, "load done name=${info.name.orEmpty()} handlers=${requestHandlers.size} qualities=${sourceQualities}")
         return info
     }
@@ -112,6 +121,9 @@ class LxUserRuntime(
 
         val requestArg = createJsObject(mapOf("source" to source, "action" to action, "info" to info))
         val handler = requestHandlers.firstOrNull()
+        if (handler != null && sourceActions.isNotEmpty() && action !in sourceActions[source].orEmpty()) {
+            throw IllegalStateException("LX source $source does not declare $action")
+        }
         Log.d(TAG, "action start source=$source quality=${args["type"]} handler=${handler != null} export=${handler == null}")
         val returned = if (handler != null) {
             handler.call(requestArg)
@@ -170,6 +182,13 @@ class LxUserRuntime(
     fun supportsSource(source: String): Boolean =
         sourceQualities.isEmpty() || sourceQualities.containsKey(source)
 
+    /**
+     * Scripts that never declared actions stay permissive. Once a script lists
+     * its actions, callers skip lyric and artwork probes the script cannot serve.
+     */
+    fun supportsAction(source: String, action: String): Boolean =
+        sourceActions.isEmpty() || action in sourceActions[source].orEmpty()
+
     fun sentEvents(): List<Pair<String, Any?>> = emptyList()
 
     private fun installGlobals() {
@@ -203,8 +222,11 @@ class LxUserRuntime(
             val url = args.getOrNull(0)?.toString().orEmpty()
             val options = args.getOrNull(1)
             val callback = args.getOrNull(2) as? JSFunction
-            executeHttpRequest(url, options, callback)
-            null
+            val callId = executeHttpRequest(url, options, callback)
+            JSCallFunction {
+                activeCalls.remove(callId)?.cancel()
+                null
+            }
         })
         lx.setProperty("on", JSCallFunction { args ->
             val event = args.getOrNull(0)?.toString().orEmpty()
@@ -279,48 +301,65 @@ class LxUserRuntime(
         val utils = context.createNewJSObject()
         val crypto = context.createNewJSObject()
         crypto.setProperty("md5", JSCallFunction { args ->
-            val input = args.firstOrNull()?.toString().orEmpty()
+            val encoded = java.net.URLEncoder.encode(args.firstOrNull()?.toString().orEmpty(), Charsets.UTF_8)
+                .replace("+", "%20")
+            val input = java.net.URLDecoder.decode(encoded, Charsets.UTF_8)
             MessageDigest.getInstance("MD5").digest(input.toByteArray(Charsets.UTF_8))
                 .joinToString("") { "%02x".format(it.toInt() and 0xff) }
         })
         crypto.setProperty("randomBytes", JSCallFunction { args ->
-            ByteArray((args.firstOrNull() as? Number)?.toInt()?.coerceIn(0, 65_536) ?: 0).also {
-                java.security.SecureRandom().nextBytes(it)
-            }
+            val size = (args.firstOrNull() as? Number)?.toInt()?.coerceIn(0, 65_536) ?: 0
+            jsBytes(ByteArray(size) { (Math.random() * 256).toInt().toByte() })
         })
         crypto.setProperty("aesEncrypt", JSCallFunction { args ->
-            val data = bytes(args.getOrNull(0))
+            val data = android.util.Base64.decode(lxBase64(args.getOrNull(0)), android.util.Base64.DEFAULT)
             val mode = args.getOrNull(1)?.toString().orEmpty()
-            val key = bytes(args.getOrNull(2))
-            val iv = bytes(args.getOrNull(3))
-            val transformation = if (mode == "aes-128-cbc") "AES/CBC/PKCS5Padding" else "AES/ECB/NoPadding"
-            Cipher.getInstance(transformation).apply {
-                init(
-                    Cipher.ENCRYPT_MODE,
-                    SecretKeySpec(key, "AES"),
-                    if (transformation.contains("CBC")) IvParameterSpec(iv) else null,
-                )
+            val key = android.util.Base64.decode(lxBase64(args.getOrNull(2)), android.util.Base64.DEFAULT)
+            val iv = android.util.Base64.decode(lxBase64(args.getOrNull(3)), android.util.Base64.DEFAULT)
+            val cbc = mode == "aes-128-cbc"
+            val transformation = if (cbc) "AES/CBC/PKCS7Padding" else "AES/ECB/NoPadding"
+            val encrypted = Cipher.getInstance(transformation).apply {
+                if (cbc) {
+                    val paddedIv = ByteArray(16)
+                    iv.copyInto(paddedIv, endIndex = minOf(iv.size, 16))
+                    init(Cipher.ENCRYPT_MODE, SecretKeySpec(key, "AES"), IvParameterSpec(paddedIv))
+                } else {
+                    init(Cipher.ENCRYPT_MODE, SecretKeySpec(key, "AES"))
+                }
             }.doFinal(data)
+            jsBytes(android.util.Base64.decode(
+                android.util.Base64.encodeToString(encrypted, android.util.Base64.NO_WRAP),
+                android.util.Base64.DEFAULT,
+            ))
         })
         crypto.setProperty("rsaEncrypt", JSCallFunction { args ->
-            val data = bytes(args.getOrNull(0))
-            val keyText = args.getOrNull(1)?.toString()?.replace("-----BEGIN PUBLIC KEY-----", "")
-                ?.replace("-----END PUBLIC KEY-----", "") ?: ""
-            val keyBytes = Base64.getDecoder().decode(keyText)
+            val data = android.util.Base64.decode(lxBase64(args.getOrNull(0)), android.util.Base64.DEFAULT)
+            val keyText = args.getOrNull(1)?.toString()
+                ?.replace("-----BEGIN PUBLIC KEY-----", "")
+                ?.replace("-----END PUBLIC KEY-----", "")
+                .orEmpty()
+            val keyBytes = android.util.Base64.decode(keyText.trim(), android.util.Base64.DEFAULT)
             val key = KeyFactory.getInstance("RSA").generatePublic(X509EncodedKeySpec(keyBytes))
-            Cipher.getInstance("RSA/ECB/NoPadding").apply { init(Cipher.ENCRYPT_MODE, key) }.doFinal(data)
+            val encrypted = Cipher.getInstance("RSA/ECB/NoPadding")
+                .apply { init(Cipher.ENCRYPT_MODE, key) }
+                .doFinal(data)
+            jsBytes(android.util.Base64.decode(
+                android.util.Base64.encodeToString(encrypted, android.util.Base64.NO_WRAP),
+                android.util.Base64.DEFAULT,
+            ))
         })
         utils.setProperty("crypto", crypto)
 
         val buffer = context.createNewJSObject()
         buffer.setProperty("from", JSCallFunction { args ->
-            bytes(args.getOrNull(0), args.getOrNull(1)?.toString())
+            jsBytes(bytes(args.getOrNull(0), args.getOrNull(1)?.toString()))
         })
         buffer.setProperty("bufToString", JSCallFunction { args ->
             val data = bytes(args.getOrNull(0))
             when (args.getOrNull(1)?.toString()) {
                 "hex" -> data.joinToString("") { "%02x".format(it.toInt() and 0xff) }
-                "base64" -> Base64.getEncoder().encodeToString(data)
+                "base64" -> lxBase64(data)
+                "binary" -> jsBytes(data)
                 else -> data.toString(Charsets.UTF_8)
             }
         })
@@ -328,11 +367,12 @@ class LxUserRuntime(
         return utils
     }
 
-    private fun executeHttpRequest(url: String, optionsValue: Any?, callback: JSFunction?) {
-        if (callback == null) return
+    private fun executeHttpRequest(url: String, optionsValue: Any?, callback: JSFunction?): Int {
+        val callId = nextCallId++
+        if (callback == null) return callId
         if (!url.startsWith("http://", ignoreCase = true) && !url.startsWith("https://", ignoreCase = true)) {
             enqueueHttpResponse(HttpResponse(callback, "Unsupported URL scheme: $url", null, null))
-            return
+            return callId
         }
         val options = when (optionsValue) {
             is QuickJSObject -> optionsValue.toMap()
@@ -340,62 +380,104 @@ class LxUserRuntime(
             else -> emptyMap<String, Any?>()
         }
         val method = (options["method"] as? String)?.uppercase() ?: "GET"
-        val headers = options["headers"].asHostMap()
+        val headers = options["headers"].asHostMap().toMutableMap()
         val bodyValue = options["body"]
         val form = options["form"].asHostMap().takeIf { it.isNotEmpty() }
+        val formData = options["formData"].asHostMap().takeIf { it.isNotEmpty() }
+        val binary = options["binary"] == true
+        if (!headers.keys.any { it?.toString().equals("Accept", ignoreCase = true) }) {
+            headers["Accept"] = "application/json"
+        }
+        if (!headers.keys.any { it?.toString().equals("User-Agent", ignoreCase = true) }) {
+            headers["User-Agent"] = LX_USER_AGENT
+        }
+        if (method == "POST" && !headers.keys.any { it?.toString().equals("Content-Type", ignoreCase = true) }) {
+            headers["Content-Type"] = when {
+                form != null -> "application/x-www-form-urlencoded"
+                formData != null -> "multipart/form-data"
+                else -> "application/json"
+            }
+        }
         val timeoutMs = (options["timeout"] as? Number)?.toLong()?.coerceIn(1_000L, 60_000L) ?: HTTP_TIMEOUT_MS
         Log.d(TAG, "http start endpoint=${url.toSafeEndpoint()} method=$method headers=${headers.keys.joinToString(",")} " +
-            "form=${form != null} body=${bodyValue != null} timeoutMs=$timeoutMs")
+            "form=${form != null} formData=${formData != null} binary=$binary body=${bodyValue != null} timeoutMs=$timeoutMs")
 
         httpPool.execute {
+            var call: Call? = null
             try {
                 val requestBuilder = Request.Builder().url(url)
                 headers.forEach { (key, value) ->
                     if (key != null && value != null) requestBuilder.addHeader(key.toString(), value.toString())
                 }
                 if (method != "GET" && method != "HEAD") {
-                    when {
-                        form != null -> {
-                            val formBody = okhttp3.FormBody.Builder().apply {
-                                form.forEach { (key, value) ->
-                                    if (key != null && value != null) add(key.toString(), value.toString())
+                    val contentType = headers.entries.firstOrNull {
+                        it.key?.toString().equals("Content-Type", ignoreCase = true)
+                    }?.value?.toString().orEmpty()
+                    val requestBody = when {
+                        form != null -> form.entries
+                            .filter { it.key != null && it.value != null }
+                            .joinToString("&") {
+                                java.net.URLEncoder.encode(it.key.toString(), Charsets.UTF_8) + "=" +
+                                    java.net.URLEncoder.encode(it.value.toString(), Charsets.UTF_8)
+                            }
+                            .toRequestBody("application/x-www-form-urlencoded".toMediaType())
+                        formData != null -> MultipartBody.Builder().setType(MultipartBody.FORM).apply {
+                            formData.forEach { (key, value) ->
+                                if (key == null || value == null) return@forEach
+                                val bytes = bytes(value)
+                                if (bytes.isNotEmpty() && value !is String) {
+                                    addFormDataPart(key.toString(), "blob", bytes.toRequestBody("application/octet-stream".toMediaType()))
+                                } else {
+                                    addFormDataPart(key.toString(), value.toString())
                                 }
-                            }.build()
-                            requestBuilder.method(method, formBody)
-                        }
-                        bodyValue != null -> requestBuilder.method(
-                            method,
-                            JSONObject(bodyValue as? Map<*, *> ?: emptyMap<Any?, Any?>()).toString()
-                                .toRequestBody("application/json".toMediaTypeOrNull()),
+                            }
+                        }.build()
+                        contentType.startsWith("application/json", ignoreCase = true) && bodyValue != null ->
+                            (if (bodyValue is String) bodyValue else JSONObject(bodyValue.asHostMap()).toString())
+                                .toRequestBody("application/json".toMediaType())
+                        bodyValue is ByteArray || bodyValue is List<*> || bodyValue is QuickJSObject ->
+                            bytes(bodyValue).toRequestBody(
+                                contentType.substringBefore(";").ifBlank { "application/octet-stream" }.toMediaType(),
+                            )
+                        bodyValue is String -> bodyValue.toRequestBody(
+                            contentType.substringBefore(";").ifBlank { "text/plain" }.toMediaType(),
                         )
-                        else -> requestBuilder.method(method, null)
+                        else -> ByteArray(0).toRequestBody(null)
                     }
+                    requestBuilder.method(method, requestBody)
                 }
-                httpClient.newBuilder().callTimeout(timeoutMs, TimeUnit.MILLISECONDS).build()
-                    .newCall(requestBuilder.build()).execute().use { response ->
-                        val rawBody = response.body.string()
-                        val parsedBody = parseResponseBody(rawBody)
-                        Log.i(
-                            TAG,
-                            "LX HTTP status=${response.code} contentType=${response.header("Content-Type").orEmpty()} " +
-                                "body=${responseShape(parsedBody)}",
-                        )
-                        Log.d(TAG, "http response endpoint=${url.toSafeEndpoint()} code=${response.code} urlAvailable=${responseShape(parsedBody).contains("url")}")
-                        val result = mapOf(
-                            "statusCode" to response.code,
-                            "statusMessage" to response.message,
-                            "headers" to response.headers.toMultimap().mapValues { it.value.joinToString(",") },
-                            "body" to parsedBody,
-                            "url" to response.request.url.toString(),
-                            "ok" to response.isSuccessful,
-                        )
-                        enqueueHttpResponse(HttpResponse(callback, null, result, parsedBody))
-                    }
+                call = httpClient.newBuilder().callTimeout(timeoutMs, TimeUnit.MILLISECONDS).build()
+                    .newCall(requestBuilder.build())
+                activeCalls[callId] = call
+                call.execute().use { response ->
+                    if (call.isCanceled()) return@execute
+                    val rawBytes = response.body.bytes()
+                    val parsedBody: Any = if (binary) jsBytes(rawBytes) else parseResponseBody(rawBytes.toString(Charsets.UTF_8))
+                    Log.i(
+                        TAG,
+                        "LX HTTP status=${response.code} contentType=${response.header("Content-Type").orEmpty()} " +
+                            "body=${responseShape(parsedBody)}",
+                    )
+                    Log.d(TAG, "http response endpoint=${url.toSafeEndpoint()} code=${response.code} urlAvailable=${responseShape(parsedBody).contains("url")}")
+                    val result = mapOf(
+                        "statusCode" to response.code,
+                        "statusMessage" to response.message,
+                        "headers" to response.headers.toMultimap(),
+                        "body" to parsedBody,
+                        "url" to response.request.url.toString(),
+                        "ok" to response.isSuccessful,
+                    )
+                    enqueueHttpResponse(HttpResponse(callback, null, result, parsedBody))
+                }
             } catch (error: Throwable) {
+                if (call?.isCanceled() == true || closed.get()) return@execute
                 Log.w(TAG, "LX HTTP failed error=${error.javaClass.simpleName}: ${error.message.safeLogMessage()}")
                 enqueueHttpResponse(HttpResponse(callback, error.message ?: "request failed", null, null))
+            } finally {
+                activeCalls.remove(callId, call)
             }
         }
+        return callId
     }
 
     private fun enqueueHttpResponse(response: HttpResponse) {
@@ -461,7 +543,13 @@ class LxUserRuntime(
                 is List<*> -> raw.mapNotNull { it?.toString() }
                 else -> emptyList()
             }
+            val actions = when (val raw = info["actions"]) {
+                is QuickJSObject -> raw.toArray().mapNotNull { it?.toString() }.toSet()
+                is List<*> -> raw.mapNotNull { it?.toString() }.toSet()
+                else -> emptySet()
+            }
             if (name != null && qualities.isNotEmpty()) sourceQualities[name.toString()] = qualities
+            if (name != null && actions.isNotEmpty()) sourceActions[name.toString()] = actions
         }
     }
 
@@ -587,12 +675,26 @@ class LxUserRuntime(
         else -> null
     }
 
+    /**
+     * Matches LX's native Base64 bridge: strings are UTF-8 encoded, while byte
+     * arrays are first decoded as Latin-1 text and then re-encoded as UTF-8.
+     */
+    private fun lxBase64(value: Any?): String {
+        val text = when (value) {
+            is String -> value
+            else -> String(bytes(value).map { (it.toInt() and 0xff).toByte() }.toByteArray(), Charsets.ISO_8859_1)
+        }
+        return android.util.Base64.encodeToString(text.toByteArray(Charsets.UTF_8), android.util.Base64.NO_WRAP)
+    }
+
+    private fun jsBytes(data: ByteArray): List<Int> = data.map { it.toInt() and 0xff }
+
     private fun bytes(value: Any?, encoding: String? = null): ByteArray = when (value) {
         is ByteArray -> value
         is QuickJSObject -> value.toArray().mapNotNull { (it as? Number)?.toByte() }.toByteArray()
         is List<*> -> value.mapNotNull { (it as? Number)?.toByte() }.toByteArray()
         is String -> when (encoding?.lowercase()) {
-            "base64" -> Base64.getDecoder().decode(value)
+            "base64" -> android.util.Base64.decode(value, android.util.Base64.DEFAULT)
             "hex" -> value.chunked(2).map { it.toInt(16).toByte() }.toByteArray()
             else -> value.toByteArray(Charsets.UTF_8)
         }
@@ -601,16 +703,43 @@ class LxUserRuntime(
 
     override fun close() {
         if (closed.compareAndSet(false, true)) {
+            activeCalls.values.forEach { it.cancel() }
+            activeCalls.clear()
             context.close()
         }
     }
 
-    private companion object {
-        val httpPool = Executors.newFixedThreadPool(4) { runnable ->
+    companion object {
+        private val sessions = ConcurrentHashMap<String, LxUserRuntime>()
+        private val sessionLock = Any()
+        private val httpPool = Executors.newFixedThreadPool(4) { runnable ->
             Thread(runnable, "melox-lx-http").apply { isDaemon = true }
         }
-        val QUALITY_ORDER = listOf("128k", "320k", "flac", "flac24bit")
-        fun createContext(): QuickJSContext {
+        private val QUALITY_ORDER = listOf("128k", "320k", "flac", "flac24bit")
+        private const val LX_USER_AGENT =
+            "Mozilla/5.0 (Windows NT 10.0; WOW64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/69.0.3497.100 Safari/537.36"
+
+        /**
+         * Keeps one QuickJS runtime per installed script. LX user sources fetch
+         * their remote configuration during startup, so rebuilding the runtime
+         * for every song repeats that work and drops the initialized state.
+         */
+        fun session(id: String, source: String): LxUserRuntime = synchronized(sessionLock) {
+            sessions[id]?.takeUnless { it.closed.get() } ?: LxUserRuntime().also { runtime ->
+                runtime.load(LxUserScript(source))
+                sessions[id] = runtime
+            }
+        }
+
+        fun evict(id: String) {
+            sessions.remove(id)?.close()
+        }
+
+        fun evictAll() {
+            sessions.keys.toList().forEach(::evict)
+        }
+
+        private fun createContext(): QuickJSContext {
             QuickJSLoader.init()
             return QuickJSContext.create()
         }

@@ -533,7 +533,7 @@ fun MeloXApp(
                             (hostContext as? Activity)?.finish()
                         } else {
                             pendingExitAtMs = now
-                            Toast.makeText(hostContext, "再按一次退出 MeloX", Toast.LENGTH_SHORT).show()
+                            Toast.makeText(hostContext, hostContext.getString(R.string.app_exit_confirm), Toast.LENGTH_SHORT).show()
                         }
                     }
                     AnimatedContent(
@@ -772,11 +772,11 @@ fun MeloXApp(
         }
         clipboardTarget?.let { target ->
             MeloXAppDialog(
-                title = "打开剪贴板链接？",
+                title = stringResource(R.string.app_clipboard_title),
                 message = if (target is NeteaseClipboardTarget.Song) {
-                    "检测到网易云歌曲，是否立即播放？"
+                    stringResource(R.string.app_clipboard_song)
                 } else {
-                    "检测到网易云歌单，是否立即打开并播放？"
+                    stringResource(R.string.app_clipboard_playlist)
                 },
                 onDismiss = onClipboardLinkConsumed,
                 onConfirm = {
@@ -815,10 +815,10 @@ fun MeloXApp(
                 )
             } else {
                 MeloXAppDialog(
-                    title = "连接音乐服务",
-                    message = "默认使用网易云音乐；你可以稍后在设置中切换 QQ音乐或酷狗音乐。各平台登录态只保存在本机。",
-                    dismissLabel = "稍后再说",
-                    confirmLabel = "登录网易云音乐",
+                    title = stringResource(R.string.app_connect_title),
+                    message = stringResource(R.string.app_connect_body),
+                    dismissLabel = stringResource(R.string.app_later),
+                    confirmLabel = stringResource(R.string.app_login_netease),
                     onDismiss = {
                         MeloXSettingsPreferences.setBoolean(context, "onboarding_completed", true)
                         onboardingPage = -1
@@ -850,10 +850,10 @@ fun MeloXApp(
             onboardingPage < 0 && !cloudControlChoicePending && pendingRemoteNotice == null
         }?.let { release ->
             MeloXAppDialog(
-                title = "发现 MeloX ${release.version}",
+                title = stringResource(R.string.app_update_found, release.version),
                 message = release.name + release.notes.takeIf(String::isNotBlank)?.let { "\n\n${it.take(500)}" }.orEmpty(),
-                dismissLabel = "稍后",
-                confirmLabel = if (release.apkUrl != null) "下载 APK" else "查看发布",
+                dismissLabel = stringResource(R.string.app_update_later),
+                confirmLabel = if (release.apkUrl != null) stringResource(R.string.app_update_download) else stringResource(R.string.app_update_view),
                 onDismiss = { availableUpdate = null },
                 onConfirm = {
                     availableUpdate = null
@@ -887,8 +887,8 @@ fun MeloXApp(
 private fun MeloXAppDialog(
     title: String,
     message: String,
-    dismissLabel: String = "取消",
-    confirmLabel: String = "确定",
+    dismissLabel: String = stringResource(R.string.action_cancel),
+    confirmLabel: String = stringResource(R.string.app_confirm),
     onDismiss: () -> Unit,
     onConfirm: () -> Unit,
 ) {

@@ -132,6 +132,32 @@ object MeloXSearchLaunchBus {
 private val SearchAccent = MeloXSystemColors.Blue
 private val SearchCategories = listOf("排行榜", "播客", "华语", "欧美", "日语", "韩语", "粤语", "流行", "摇滚", "民谣", "电子", "说唱", "R&B/Soul", "古典", "ACG", "影视原声", "学习", "工作", "放松", "夜晚")
 
+/** Display label for a browse-category id. The id itself stays Chinese. */
+@Composable
+private fun searchCategoryLabel(id: String): String = when (id) {
+    "排行榜" -> stringResource(R.string.search_cat_charts)
+    "播客" -> stringResource(R.string.search_cat_podcasts)
+    "华语" -> stringResource(R.string.search_cat_chinese)
+    "欧美" -> stringResource(R.string.search_cat_western)
+    "日语" -> stringResource(R.string.search_cat_japanese)
+    "韩语" -> stringResource(R.string.search_cat_korean)
+    "粤语" -> stringResource(R.string.search_cat_cantonese)
+    "流行" -> stringResource(R.string.search_cat_pop)
+    "摇滚" -> stringResource(R.string.search_cat_rock)
+    "民谣" -> stringResource(R.string.search_cat_folk)
+    "电子" -> stringResource(R.string.search_cat_electronic)
+    "说唱" -> stringResource(R.string.search_cat_hiphop)
+    "R&B/Soul" -> stringResource(R.string.search_cat_rnb)
+    "古典" -> stringResource(R.string.search_cat_classical)
+    "ACG" -> stringResource(R.string.search_cat_acg)
+    "影视原声" -> stringResource(R.string.search_cat_soundtrack)
+    "学习" -> stringResource(R.string.search_cat_study)
+    "工作" -> stringResource(R.string.search_cat_work)
+    "放松" -> stringResource(R.string.search_cat_relax)
+    "夜晚" -> stringResource(R.string.search_cat_night)
+    else -> id
+}
+
 private sealed interface ProviderSearchDestination {
     val source: MusicSource
     val key: String
@@ -163,10 +189,7 @@ private sealed interface ProviderSearchDestination {
         override val key = "artist:${source.storageValue}:${value.id.value}"
         override val kind = MeloXSearchKind.Artists
         override val title = value.name
-        override val subtitle = buildList {
-            value.songCount?.let { add("$it 首歌曲") }
-            value.albumCount?.let { add("$it 张专辑") }
-        }.joinToString(" · ")
+        override val subtitle = ""
         override val artworkUrl = value.artworkUrl
     }
 }
@@ -311,7 +334,7 @@ fun SearchScreen(
                     media = emptyList()
                     kind = MeloXSearchKind.Songs
                 }
-                .onFailure { if (it is CancellationException) throw it else error = it.message ?: "无法读取歌曲链接" }
+                .onFailure { if (it is CancellationException) throw it else error = it.message ?: appContext.getString(R.string.search_link_failed) }
             loading = false
             return@LaunchedEffect
         }
@@ -341,26 +364,26 @@ fun SearchScreen(
                         if (failure is CancellationException) throw failure
                         providerSongs = emptyList()
                         unifiedFailures = emptyList()
-                        error = failure.message ?: "搜索失败"
+                        error = failure.message ?: appContext.getString(R.string.search_failed)
                     }
                 } else if (source == MusicSource.Netease) {
                     providerSongs = emptyList()
                     unifiedFailures = emptyList()
                     runCatching { songClient.ensureArtwork(songClient.searchSongs(keyword)) }
                         .onSuccess { ensureActive(); songs = it }
-                        .onFailure { if (it is CancellationException) throw it else error = it.message ?: "搜索失败" }
+                        .onFailure { if (it is CancellationException) throw it else error = it.message ?: appContext.getString(R.string.search_failed) }
                 } else {
                     songs = emptyList()
                     unifiedFailures = emptyList()
                     val capability = providerSongSearch
                     if (capability == null) {
                         providerSongs = emptyList()
-                        error = "${source.displayName} 当前没有歌曲搜索能力"
+                        error = appContext.getString(R.string.search_songs_unavailable, source.displayName)
                     } else {
                         runCatching {
                             withContext(Dispatchers.IO) { capability.searchSongs(keyword, page = 1, pageSize = 50).items }
                         }.onSuccess { ensureActive(); providerSongs = it }
-                            .onFailure { if (it is CancellationException) throw it else error = it.message ?: "搜索失败" }
+                            .onFailure { if (it is CancellationException) throw it else error = it.message ?: appContext.getString(R.string.search_failed) }
                     }
                 }
             }
@@ -370,14 +393,14 @@ fun SearchScreen(
                 if (source == MusicSource.Netease) {
                     runCatching { universal.searchMedia(keyword, kind) }
                         .onSuccess { ensureActive(); media = it }
-                        .onFailure { if (it is CancellationException) throw it else error = it.message ?: "搜索失败" }
+                        .onFailure { if (it is CancellationException) throw it else error = it.message ?: appContext.getString(R.string.search_failed) }
                 } else {
                     val capability = providerCatalog
-                    if (capability == null || currentProvider !is PlaylistCapability) error = "${source.displayName} 当前没有可用的歌单详情能力"
+                    if (capability == null || currentProvider !is PlaylistCapability) error = appContext.getString(R.string.search_playlists_unavailable, source.displayName)
                     else runCatching {
                         withContext(Dispatchers.IO) { capability.searchPlaylists(keyword, page = 1, pageSize = 40).items }
                     }.onSuccess { ensureActive(); providerPlaylists = it }
-                        .onFailure { if (it is CancellationException) throw it else error = it.message ?: "搜索失败" }
+                        .onFailure { if (it is CancellationException) throw it else error = it.message ?: appContext.getString(R.string.search_failed) }
                 }
             }
 
@@ -386,14 +409,14 @@ fun SearchScreen(
                 if (source == MusicSource.Netease) {
                     runCatching { universal.searchMedia(keyword, kind) }
                         .onSuccess { ensureActive(); media = it }
-                        .onFailure { if (it is CancellationException) throw it else error = it.message ?: "搜索失败" }
+                        .onFailure { if (it is CancellationException) throw it else error = it.message ?: appContext.getString(R.string.search_failed) }
                 } else {
                     val capability = providerCatalog
-                    if (capability == null || currentProvider !is AlbumCapability) error = "${source.displayName} 当前没有可用的专辑详情能力"
+                    if (capability == null || currentProvider !is AlbumCapability) error = appContext.getString(R.string.search_albums_unavailable, source.displayName)
                     else runCatching {
                         withContext(Dispatchers.IO) { capability.searchAlbums(keyword, page = 1, pageSize = 40).items }
                     }.onSuccess { ensureActive(); providerAlbums = it }
-                        .onFailure { if (it is CancellationException) throw it else error = it.message ?: "搜索失败" }
+                        .onFailure { if (it is CancellationException) throw it else error = it.message ?: appContext.getString(R.string.search_failed) }
                 }
             }
 
@@ -402,14 +425,14 @@ fun SearchScreen(
                 if (source == MusicSource.Netease) {
                     runCatching { universal.searchMedia(keyword, kind) }
                         .onSuccess { ensureActive(); media = it }
-                        .onFailure { if (it is CancellationException) throw it else error = it.message ?: "搜索失败" }
+                        .onFailure { if (it is CancellationException) throw it else error = it.message ?: appContext.getString(R.string.search_failed) }
                 } else {
                     val capability = providerCatalog
-                    if (capability == null || currentProvider !is ArtistCapability) error = "${source.displayName} 当前没有可用的歌手详情能力"
+                    if (capability == null || currentProvider !is ArtistCapability) error = appContext.getString(R.string.search_artists_unavailable, source.displayName)
                     else runCatching {
                         withContext(Dispatchers.IO) { capability.searchArtists(keyword, page = 1, pageSize = 40).items }
                     }.onSuccess { ensureActive(); providerArtists = it }
-                        .onFailure { if (it is CancellationException) throw it else error = it.message ?: "搜索失败" }
+                        .onFailure { if (it is CancellationException) throw it else error = it.message ?: appContext.getString(R.string.search_failed) }
                 }
             }
 
@@ -417,11 +440,11 @@ fun SearchScreen(
                 providerSongs = emptyList(); unifiedFailures = emptyList()
                 if (source != MusicSource.Netease) {
                     media = emptyList()
-                    error = "${source.displayName} 不提供${kind.title}搜索"
+                    error = appContext.getString(R.string.search_kind_unavailable, source.displayName, kind.title)
                 } else {
                     runCatching { universal.searchMedia(keyword, kind) }
                         .onSuccess { ensureActive(); media = it; songs = emptyList() }
-                        .onFailure { if (it is CancellationException) throw it else error = it.message ?: "搜索失败" }
+                        .onFailure { if (it is CancellationException) throw it else error = it.message ?: appContext.getString(R.string.search_failed) }
                 }
             }
         }
@@ -546,7 +569,7 @@ fun SearchScreen(
                             scope.launch {
                                 runCatching { library.explorePlaylists(category, 50) }
                                     .onSuccess { categoryPlaylists = it }
-                                    .onFailure { error = it.message ?: "类别加载失败" }
+                                    .onFailure { error = it.message ?: context.getString(R.string.search_category_failed) }
                                 loading = false
                             }
                         }
@@ -572,7 +595,7 @@ fun SearchScreen(
                             context = context,
                             tracks = providerSongs,
                             selectedTrackId = track.id,
-                            onFailure = { failure -> error = failure.message ?: "播放失败" },
+                            onFailure = { failure -> error = failure.message ?: context.getString(R.string.search_play_failed) },
                         )
                     },
                 )
@@ -583,7 +606,7 @@ fun SearchScreen(
                     onLike = { song ->
                         scope.launch {
                             runCatching { operations.setSongLiked(song.id, true) }
-                                .onFailure { error = it.message ?: "添加到资料库失败" }
+                                .onFailure { error = it.message ?: context.getString(R.string.library_add_failed) }
                         }
                     },
                 )
@@ -654,6 +677,7 @@ private fun SearchField(
 ) {
     var focused by remember { mutableStateOf(false) }
     val clearDescription = stringResource(R.string.search_clear)
+    val searchDescription = stringResource(R.string.search_content_description)
     MeloXGlassTextField(
         value = value,
         onValueChange = onValueChange,
@@ -684,7 +708,7 @@ private fun SearchField(
                         modifier = Modifier
                             .size(44.dp)
                             .clickable(role = Role.Button) { onSearch() }
-                            .semantics { contentDescription = "搜索" },
+                            .semantics { contentDescription = searchDescription },
                         contentAlignment = Alignment.Center,
                     ) {
                         MeloXSymbolIcon(
@@ -765,7 +789,7 @@ private fun SearchDiscovery(
         contentPadding = PaddingValues(bottom = MeloXBottomContentClearance),
     ) {
         if (recommendations.isNotEmpty()) {
-            item { Text("热门推荐", modifier = Modifier.padding(start = 20.dp, top = 14.dp, bottom = 12.dp), fontSize = 24.sp, fontWeight = FontWeight.Bold) }
+            item { Text(stringResource(R.string.search_trending), modifier = Modifier.padding(start = 20.dp, top = 14.dp, bottom = 12.dp), fontSize = 24.sp, fontWeight = FontWeight.Bold) }
             item {
                 LazyRow(contentPadding = PaddingValues(horizontal = 20.dp), horizontalArrangement = Arrangement.spacedBy(14.dp)) {
                     items(recommendations, key = { it.id }) { p ->
@@ -777,7 +801,7 @@ private fun SearchDiscovery(
                 }
             }
         }
-        item { Text("浏览类别", modifier = Modifier.padding(start = 20.dp, top = 26.dp, bottom = 12.dp), fontSize = 24.sp, fontWeight = FontWeight.Bold) }
+        item { Text(stringResource(R.string.search_browse), modifier = Modifier.padding(start = 20.dp, top = 26.dp, bottom = 12.dp), fontSize = 24.sp, fontWeight = FontWeight.Bold) }
         items(SearchCategories.filter { it != "播客" || MeloXSettingsRuntime.podcastsEnabled }.chunked(categoryColumns)) { pair ->
             Row(Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 6.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                 pair.forEach { category -> SearchCategoryCard(category, Modifier.weight(1f)) { onCategory(category) } }
@@ -798,7 +822,7 @@ private fun ProviderSearchDiscovery(
         contentPadding = PaddingValues(bottom = MeloXBottomContentClearance),
     ) {
         if (recommendations.isNotEmpty()) {
-            item { Text("热门推荐", modifier = Modifier.padding(start = 20.dp, top = 14.dp, bottom = 12.dp), fontSize = 24.sp, fontWeight = FontWeight.Bold) }
+            item { Text(stringResource(R.string.search_trending), modifier = Modifier.padding(start = 20.dp, top = 14.dp, bottom = 12.dp), fontSize = 24.sp, fontWeight = FontWeight.Bold) }
             item {
                 LazyRow(contentPadding = PaddingValues(horizontal = 20.dp), horizontalArrangement = Arrangement.spacedBy(14.dp)) {
                     items(recommendations, key = { "${it.id.source.storageValue}:${it.id.value}" }) { p ->
@@ -812,7 +836,7 @@ private fun ProviderSearchDiscovery(
         }
         item {
             Box(Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 28.dp), contentAlignment = Alignment.Center) {
-                Text("搜索 ${source.displayName} 的歌曲、歌单、专辑或歌手", color = MaterialTheme.colorScheme.onSurface.copy(alpha = .48f))
+                Text(stringResource(R.string.search_source_hint, source.displayName), color = MaterialTheme.colorScheme.onSurface.copy(alpha = .48f))
             }
         }
     }
@@ -831,7 +855,7 @@ private fun SearchCategoryCard(title: String, modifier: Modifier, onClick: () ->
             .clickable(onClick = onClick)
             .padding(14.dp),
         contentAlignment = Alignment.BottomStart,
-    ) { Text(title, color = Color.White, fontSize = 18.sp, fontWeight = FontWeight.Bold) }
+    ) { Text(searchCategoryLabel(title), color = Color.White, fontSize = 18.sp, fontWeight = FontWeight.Bold) }
 }
 
 @Composable
@@ -858,14 +882,14 @@ private fun ProviderSearchSongResults(
             }
         }
         if (values.isEmpty()) {
-            item { SearchEmptyInline("没有找到歌曲") }
+            item { SearchEmptyInline(stringResource(R.string.search_no_songs)) }
         } else {
             items(values, key = { "provider:${it.id.source.storageValue}:${it.id.value}" }) { track ->
                 SearchSwipeSongRow(
                     song = MeloXLegacyUiBridge.track(track),
                     onPlay = { onPlay(track) },
                     onMore = null,
-                    endAction = MeloXSwipeAction("下载到本机", MeloXSymbol.Download, Color(0xFF0EA5E9)) {
+                    endAction = MeloXSwipeAction(stringResource(R.string.search_download_local), MeloXSymbol.Download, Color(0xFF0EA5E9)) {
                         providerDownloads.start(track)
                     },
                     sourceLabel = track.id.source.displayName.takeIf { showSource },
@@ -877,11 +901,20 @@ private fun ProviderSearchSongResults(
 }
 
 @Composable
+private fun providerSearchSubtitle(item: ProviderSearchDestination): String {
+    val artist = item as? ProviderSearchDestination.Artist ?: return item.subtitle
+    return buildList {
+        artist.value.songCount?.let { add(stringResource(R.string.search_song_count, it)) }
+        artist.value.albumCount?.let { add(stringResource(R.string.search_album_count, it)) }
+    }.joinToString(" · ")
+}
+
+@Composable
 private fun ProviderSearchMediaResults(
     values: List<ProviderSearchDestination>,
     onOpen: (ProviderSearchDestination) -> Unit,
 ) {
-    if (values.isEmpty()) { SearchEmpty("没有找到内容"); return }
+    if (values.isEmpty()) { SearchEmpty(stringResource(R.string.search_no_results)); return }
     LazyColumn(contentPadding = PaddingValues(start = 20.dp, end = 20.dp, bottom = MeloXBottomContentClearance)) {
         items(values, key = ProviderSearchDestination::key) { item ->
             Row(
@@ -901,7 +934,7 @@ private fun ProviderSearchMediaResults(
                 Column(Modifier.weight(1f)) {
                     Text(item.title, maxLines = 1, overflow = TextOverflow.Ellipsis, fontSize = 17.sp)
                     Text(
-                        item.subtitle.ifBlank { item.kind.title },
+                        providerSearchSubtitle(item).ifBlank { item.kind.title },
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
                         color = MaterialTheme.colorScheme.onSurface.copy(alpha = .5f),
@@ -921,14 +954,14 @@ private fun SearchSongResults(
     onMore: (SearchSong) -> Unit,
     onLike: (SearchSong) -> Unit,
 ) {
-    if (values.isEmpty()) { SearchEmpty("没有找到歌曲"); return }
+    if (values.isEmpty()) { SearchEmpty(stringResource(R.string.search_no_songs)); return }
     LazyColumn(contentPadding = PaddingValues(start = 20.dp, end = 20.dp, bottom = MeloXBottomContentClearance)) {
         items(values, key = { it.id }) { song ->
             SearchSwipeSongRow(
                 song = song,
                 onPlay = { onPlay(song) },
                 onMore = { onMore(song) },
-                endAction = MeloXSwipeAction("添加到资料库", MeloXSymbol.Heart, Color(0xFFFF3B30)) { onLike(song) },
+                endAction = MeloXSwipeAction(stringResource(R.string.artist_add_library), MeloXSymbol.Heart, Color(0xFFFF3B30)) { onLike(song) },
             )
             HorizontalDivider(color = MaterialTheme.colorScheme.onSurface.copy(alpha = .08f))
         }
@@ -946,8 +979,8 @@ private fun SearchSwipeSongRow(
     val context = LocalContext.current
     MeloXSwipeActionRow(
         startActions = listOf(
-            MeloXSwipeAction("下一首播放", MeloXSymbol.Next, Color(0xFF8E5AF7)) { PlaybackCommands.playNext(context, song) },
-            MeloXSwipeAction("稍后播放", MeloXSymbol.Queue, Color(0xFFFF9F0A)) { PlaybackCommands.addToQueue(context, song) },
+            MeloXSwipeAction(stringResource(R.string.player_play_next), MeloXSymbol.Next, Color(0xFF8E5AF7)) { PlaybackCommands.playNext(context, song) },
+            MeloXSwipeAction(stringResource(R.string.artist_play_later), MeloXSymbol.Queue, Color(0xFFFF9F0A)) { PlaybackCommands.addToQueue(context, song) },
         ),
         endActions = listOfNotNull(endAction),
         startFullSwipeActionIndex = if (MeloXSettingsRuntime.swipeFullAction == MeloXSwipeFullAction.AddToQueue) 1 else 0,
@@ -980,7 +1013,7 @@ private fun SearchSwipeSongRow(
 
 @Composable
 private fun SearchMediaResults(values: List<MeloXSearchMediaItem>, onOpen: (MeloXSearchMediaItem) -> Unit) {
-    if (values.isEmpty()) { SearchEmpty("没有找到内容"); return }
+    if (values.isEmpty()) { SearchEmpty(stringResource(R.string.search_no_results)); return }
     LazyColumn(contentPadding = PaddingValues(start = 20.dp, end = 20.dp, bottom = MeloXBottomContentClearance)) {
         items(values, key = { "${it.kind}-${it.id}" }) { item ->
             Row(
@@ -994,7 +1027,7 @@ private fun SearchMediaResults(values: List<MeloXSearchMediaItem>, onOpen: (Melo
                 Spacer(Modifier.width(12.dp))
                 Column(Modifier.weight(1f)) {
                     Text(item.title, maxLines = 1, overflow = TextOverflow.Ellipsis, fontSize = 17.sp)
-                    Text(item.subtitle.ifBlank { if (item.trackCount > 0) "${item.trackCount} 首" else item.kind.title }, maxLines = 1, overflow = TextOverflow.Ellipsis, color = MaterialTheme.colorScheme.onSurface.copy(alpha = .5f), fontSize = 13.sp)
+                    Text(item.subtitle.ifBlank { if (item.trackCount > 0) stringResource(R.string.search_song_count_short, item.trackCount) else item.kind.title }, maxLines = 1, overflow = TextOverflow.Ellipsis, color = MaterialTheme.colorScheme.onSurface.copy(alpha = .5f), fontSize = 13.sp)
                 }
                 MeloXActionIcon("›", Modifier.size(18.dp), MaterialTheme.colorScheme.onSurface.copy(alpha = .3f))
             }
@@ -1012,12 +1045,12 @@ private fun SearchCategoryPage(
     onPlaylist: (NeteasePlaylistSummary) -> Unit,
 ) {
     Column(Modifier.fillMaxSize().statusBarsPadding().padding(top = 16.dp)) {
-        SearchDetailHeader(title, onBack)
+        SearchDetailHeader(searchCategoryLabel(title), onBack)
         when {
-            title == "播客" -> SearchEmpty("播客请使用上方搜索框切换到“播客”范围进行搜索。")
+            title == "播客" -> SearchEmpty(stringResource(R.string.search_podcast_hint))
             loading -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { CircularProgressIndicator() }
             error != null -> SearchEmpty(error)
-            values.isEmpty() -> SearchEmpty("暂无内容")
+            values.isEmpty() -> SearchEmpty(stringResource(R.string.melox_state_empty))
             else -> LazyColumn(contentPadding = PaddingValues(start = 20.dp, end = 20.dp, top = 10.dp, bottom = MeloXBottomContentClearance)) {
                 items(values, key = { it.id }) { p ->
                     Row(Modifier.fillMaxWidth().clickable { onPlaylist(p) }.padding(vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -1025,7 +1058,7 @@ private fun SearchCategoryPage(
                         Spacer(Modifier.width(12.dp))
                         Column(Modifier.weight(1f)) {
                             Text(p.name, maxLines = 1, overflow = TextOverflow.Ellipsis, fontWeight = FontWeight.SemiBold)
-                            Text("${p.trackCount} 首歌曲", fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurface.copy(alpha = .5f))
+                            Text(stringResource(R.string.library_song_count, p.trackCount), fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurface.copy(alpha = .5f))
                         }
                     }
                 }
@@ -1100,17 +1133,17 @@ private fun SearchCollectionDetail(
                         val tracks = when (item) {
                             is ProviderSearchDestination.Playlist -> {
                                 val capability = provider as? PlaylistCapability
-                                    ?: throw IllegalStateException("${item.source.displayName} 当前不提供歌单详情")
+                                    ?: throw IllegalStateException(appContext.getString(R.string.search_playlist_unavailable, item.source.displayName))
                                 capability.loadAllPlaylistTracks(item.value, pageSize = 200).tracks
                             }
                             is ProviderSearchDestination.Album -> {
                                 val capability = provider as? AlbumCapability
-                                    ?: throw IllegalStateException("${item.source.displayName} 当前不提供专辑详情")
+                                    ?: throw IllegalStateException(appContext.getString(R.string.search_album_unavailable, item.source.displayName))
                                 capability.albumDetail(item.value, page = 1, pageSize = 150).tracks
                             }
                             is ProviderSearchDestination.Artist -> {
                                 val capability = provider as? ArtistCapability
-                                    ?: throw IllegalStateException("${item.source.displayName} 当前不提供歌手详情")
+                                    ?: throw IllegalStateException(appContext.getString(R.string.search_artist_unavailable, item.source.displayName))
                                 capability.artistDetail(item.value, page = 1, pageSize = 150).tracks
                             }
                         }
@@ -1121,7 +1154,7 @@ private fun SearchCollectionDetail(
         }.onSuccess { (neteaseSongs, commonTracks) ->
             songs = neteaseSongs
             providerTracks = commonTracks
-        }.onFailure { error = it.message ?: "内容加载失败" }
+        }.onFailure { error = it.message ?: appContext.getString(R.string.search_content_failed) }
         loading = false
     }
 
@@ -1151,7 +1184,7 @@ private fun SearchCollectionDetail(
                     val hasTracks = songs.isNotEmpty() || providerTracks.isNotEmpty()
                     if (hasTracks) {
                         Row(Modifier.padding(top = 16.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                            SearchPlayButton("随机") {
+                            SearchPlayButton(stringResource(R.string.search_shuffle)) {
                                 if (providerTracks.isNotEmpty()) {
                                     val shuffled = providerTracks.shuffled()
                                     shuffled.firstOrNull()?.let { ProviderPlaybackCommands.playQueue(context, shuffled, it.id) }
@@ -1160,7 +1193,7 @@ private fun SearchCollectionDetail(
                                     shuffled.firstOrNull()?.let { PlaybackCommands.playQueue(context, shuffled, it.id) }
                                 }
                             }
-                            SearchPlayButton("播放") {
+                            SearchPlayButton(stringResource(R.string.action_play)) {
                                 if (providerTracks.isNotEmpty()) {
                                     providerTracks.firstOrNull()?.let { ProviderPlaybackCommands.playQueue(context, providerTracks, it.id) }
                                 } else {
@@ -1179,7 +1212,7 @@ private fun SearchCollectionDetail(
                         song = MeloXLegacyUiBridge.track(track),
                         onPlay = { ProviderPlaybackCommands.playQueue(context, providerTracks, track.id) },
                         onMore = null,
-                        endAction = MeloXSwipeAction("下载到本机", MeloXSymbol.Download, Color(0xFF0EA5E9)) {
+                        endAction = MeloXSwipeAction(stringResource(R.string.search_download_local), MeloXSymbol.Download, Color(0xFF0EA5E9)) {
                             MeloXProviderDownloadStore.get(context).start(track)
                         },
                         sourceLabel = track.id.source.displayName,
@@ -1190,10 +1223,10 @@ private fun SearchCollectionDetail(
                         song = song,
                         onPlay = { PlaybackCommands.playQueue(context, songs, song.id) },
                         onMore = { selectedActionSong = song },
-                        endAction = MeloXSwipeAction("添加到资料库", MeloXSymbol.Heart, Color(0xFFFF3B30)) {
+                        endAction = MeloXSwipeAction(stringResource(R.string.artist_add_library), MeloXSymbol.Heart, Color(0xFFFF3B30)) {
                             scope.launch {
                                 runCatching { operations.setSongLiked(song.id, true) }
-                                    .onFailure { error = it.message ?: "添加到资料库失败" }
+                                    .onFailure { error = it.message ?: context.getString(R.string.library_add_failed) }
                             }
                         },
                     )

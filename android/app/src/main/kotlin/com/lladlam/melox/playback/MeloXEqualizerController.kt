@@ -13,7 +13,12 @@ class MeloXEqualizerController(private val context: Context) {
     private var appliedSettings: Settings? = null
 
     fun attach(newSessionId: Int) {
-        if (newSessionId <= 0 || newSessionId == sessionId) return
+        if (newSessionId <= 0) return
+        if (!MeloXSettingsPreferences.boolean(context, "equalizer_enabled", false)) {
+            if (effect != null) release()
+            return
+        }
+        if (newSessionId == sessionId && effect != null) return
         release()
         sessionId = newSessionId
         effect = runCatching { Equalizer(0, newSessionId) }
@@ -23,6 +28,10 @@ class MeloXEqualizerController(private val context: Context) {
     }
 
     fun applySettings(force: Boolean = false) {
+        if (!MeloXSettingsPreferences.boolean(context, "equalizer_enabled", false)) {
+            if (effect != null) release()
+            return
+        }
         val equalizer = effect ?: return
         runCatching {
             val enabled = MeloXSettingsPreferences.boolean(context, "equalizer_enabled", false)

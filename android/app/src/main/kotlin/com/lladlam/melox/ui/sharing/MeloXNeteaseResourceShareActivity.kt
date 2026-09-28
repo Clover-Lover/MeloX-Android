@@ -21,11 +21,13 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil3.compose.AsyncImage
+import com.lladlam.melox.R
 import com.lladlam.melox.core.account.NeteaseSessionStore
 import com.lladlam.melox.core.network.MeloXMessageContact
 import com.lladlam.melox.core.network.NeteaseMusicOperationsClient
@@ -40,7 +42,12 @@ import kotlinx.coroutines.launch
 
 private data class ShareResource(val type: String, val id: Long, val title: String, val url: String) {
     val supportsTimeline: Boolean get() = type == "song" || type == "playlist"
-    val kindTitle: String get() = when (type) { "song" -> "歌曲"; "playlist" -> "歌单"; "album" -> "专辑"; else -> "内容" }
+    fun kindTitle(context: Context): String = when (type) {
+        "song" -> context.getString(R.string.share_kind_song)
+        "playlist" -> context.getString(R.string.share_kind_playlist)
+        "album" -> context.getString(R.string.share_kind_album)
+        else -> context.getString(R.string.share_kind_content)
+    }
 }
 
 class MeloXNeteaseResourceShareActivity : ComponentActivity() {
@@ -71,15 +78,15 @@ class MeloXNeteaseResourceShareActivity : ComponentActivity() {
 
 @Composable private fun ShareScreen(resource: ShareResource, onBack: () -> Unit) {
     val context = LocalContext.current; val app = context.applicationContext; val cookieProvider = remember(app) { { NeteaseSessionStore.readCookie(app) } }; val ops = remember(app) { NeteaseMusicOperationsClient(cookieProvider = cookieProvider) }; val social = remember(app) { NeteaseSocialExtrasClient(cookieProvider = cookieProvider) }; val account = remember(app) { NeteaseSearchClient(cookieProvider = cookieProvider) }; val scope = rememberCoroutineScope()
-    var contacts by remember(resource.id) { mutableStateOf<List<MeloXMessageContact>>(emptyList()) }; var loading by remember(resource.id) { mutableStateOf(true) }; var busy by remember(resource.id) { mutableStateOf(false) }; var message by remember(resource.id) { mutableStateOf<String?>(null) }
-    LaunchedEffect(resource.id) { val cookie = NeteaseSessionStore.readCookie(app); if (!NeteaseSessionStore.containsMusicU(cookie)) { message = "登录网易云音乐后可发送给好友或分享到动态。"; loading = false; return@LaunchedEffect }; runCatching { val profile = account.accountProfile(); ops.messageContacts(profile.userId) }.onSuccess { contacts = it }.onFailure { message = it.message ?: "联系人加载失败" }; loading = false }
+    var contacts by remember(resource.id) { mutableStateOf<List<MeloXMessageContact>>(emptyList()) }; var loading by remember(resource.id) { mutableStateOf(true) }; var busy by remember(resource.id) { mutableStateOf(false) }; var message by remember(resource.id) { mutableStateOf<String?>(null) }; var messageSuccess by remember(resource.id) { mutableStateOf(false) }
+    LaunchedEffect(resource.id) { val cookie = NeteaseSessionStore.readCookie(app); if (!NeteaseSessionStore.containsMusicU(cookie)) { message = context.getString(R.string.share_login_required); messageSuccess = false; loading = false; return@LaunchedEffect }; runCatching { val profile = account.accountProfile(); ops.messageContacts(profile.userId) }.onSuccess { contacts = it }.onFailure { message = it.message ?: context.getString(R.string.share_contacts_failed); messageSuccess = false }; loading = false }
     LazyColumn(Modifier.fillMaxSize().statusBarsPadding().navigationBarsPadding(), contentPadding = PaddingValues(20.dp, 14.dp, 20.dp, 36.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        item { Row(verticalAlignment = Alignment.CenterVertically) { Box(Modifier.size(44.dp).meloXLiquidButton(shape = CircleShape).clickable(onClick = onBack), contentAlignment = Alignment.Center) { MeloXActionIcon("‹", Modifier.size(20.dp), MaterialTheme.colorScheme.onSurface) }; Column(Modifier.weight(1f).padding(start = 12.dp)) { Text("分享${resource.kindTitle}", fontSize = 25.sp, fontWeight = FontWeight.Bold); Text(resource.title.ifBlank { "网易云音乐" }, maxLines = 1, overflow = TextOverflow.Ellipsis, color = MaterialTheme.colorScheme.onSurface.copy(alpha = .52f)) } } }
-        item { Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) { ShareAction("系统分享", Modifier.weight(1f), enabled = !busy) { val send = Intent(Intent.ACTION_SEND).setType("text/plain").putExtra(Intent.EXTRA_TEXT, "${resource.title}\n${resource.url}"); val chooser = Intent.createChooser(send, "系统分享").putExtra(Intent.EXTRA_EXCLUDE_COMPONENTS, arrayOf(ComponentName(context, MeloXNeteaseResourceShareActivity::class.java))); context.startActivity(chooser) }; if (resource.supportsTimeline) ShareAction("分享到动态", Modifier.weight(1f), enabled = !busy && NeteaseSessionStore.containsMusicU(NeteaseSessionStore.readCookie(app))) { busy = true; scope.launch { runCatching { social.shareResourceToTimeline(resource.type, resource.id) }.onSuccess { message = "已分享到网易云动态" }.onFailure { message = it.message ?: "动态分享失败" }; busy = false } } } }
-        message?.let { item { Text(it, color = if (it.startsWith("已")) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface.copy(alpha = .58f), fontSize = 13.sp) } }
+        item { Row(verticalAlignment = Alignment.CenterVertically) { Box(Modifier.size(44.dp).meloXLiquidButton(shape = CircleShape).clickable(onClick = onBack), contentAlignment = Alignment.Center) { MeloXActionIcon("‹", Modifier.size(20.dp), MaterialTheme.colorScheme.onSurface) }; Column(Modifier.weight(1f).padding(start = 12.dp)) { Text(stringResource(R.string.share_title, resource.kindTitle(context)), fontSize = 25.sp, fontWeight = FontWeight.Bold); Text(resource.title.ifBlank { stringResource(R.string.share_netease) }, maxLines = 1, overflow = TextOverflow.Ellipsis, color = MaterialTheme.colorScheme.onSurface.copy(alpha = .52f)) } } }
+        item { Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) { ShareAction(stringResource(R.string.share_system), Modifier.weight(1f), enabled = !busy) { val send = Intent(Intent.ACTION_SEND).setType("text/plain").putExtra(Intent.EXTRA_TEXT, "${resource.title}\n${resource.url}"); val chooser = Intent.createChooser(send, context.getString(R.string.share_system)).putExtra(Intent.EXTRA_EXCLUDE_COMPONENTS, arrayOf(ComponentName(context, MeloXNeteaseResourceShareActivity::class.java))); context.startActivity(chooser) }; if (resource.supportsTimeline) ShareAction(stringResource(R.string.share_to_feed), Modifier.weight(1f), enabled = !busy && NeteaseSessionStore.containsMusicU(NeteaseSessionStore.readCookie(app))) { busy = true; scope.launch { runCatching { social.shareResourceToTimeline(resource.type, resource.id) }.onSuccess { message = context.getString(R.string.share_shared_feed); messageSuccess = true }.onFailure { message = it.message ?: context.getString(R.string.player_share_timeline_failed); messageSuccess = false }; busy = false } } } }
+        message?.let { item { Text(it, color = if (messageSuccess) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface.copy(alpha = .58f), fontSize = 13.sp) } }
         if (loading) item { Box(Modifier.fillMaxWidth().height(100.dp), contentAlignment = Alignment.Center) { CircularProgressIndicator() } }
-        if (contacts.isNotEmpty()) item { Text("发送给网易云好友", fontSize = 20.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(top = 8.dp)) }
-        items(contacts, key = { "contact-${it.id}" }) { contact -> Row(Modifier.fillMaxWidth().clickable(enabled = !busy) { busy = true; scope.launch { runCatching { social.sendResourceToUser(resource.type, resource.id, contact.id) }.onSuccess { message = "已发送给 ${contact.name}" }.onFailure { message = it.message ?: "发送失败" }; busy = false } }.padding(vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) { AsyncImage(contact.avatarUrl, null, contentScale = ContentScale.Crop, modifier = Modifier.size(48.dp).clip(CircleShape)); Column(Modifier.weight(1f).padding(start = 11.dp)) { Text(contact.name, fontWeight = FontWeight.SemiBold); if (contact.signature.isNotBlank()) Text(contact.signature, maxLines = 1, overflow = TextOverflow.Ellipsis, color = MaterialTheme.colorScheme.onSurface.copy(alpha = .45f), fontSize = 12.sp) }; Text("发送", color = MaterialTheme.colorScheme.primary, fontSize = 13.sp) } }
+        if (contacts.isNotEmpty()) item { Text(stringResource(R.string.share_to_friends), fontSize = 20.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(top = 8.dp)) }
+        items(contacts, key = { "contact-${it.id}" }) { contact -> Row(Modifier.fillMaxWidth().clickable(enabled = !busy) { busy = true; scope.launch { runCatching { social.sendResourceToUser(resource.type, resource.id, contact.id) }.onSuccess { message = context.getString(R.string.share_sent_to, contact.name); messageSuccess = true }.onFailure { message = it.message ?: context.getString(R.string.share_send_failed); messageSuccess = false }; busy = false } }.padding(vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) { AsyncImage(contact.avatarUrl, null, contentScale = ContentScale.Crop, modifier = Modifier.size(48.dp).clip(CircleShape)); Column(Modifier.weight(1f).padding(start = 11.dp)) { Text(contact.name, fontWeight = FontWeight.SemiBold); if (contact.signature.isNotBlank()) Text(contact.signature, maxLines = 1, overflow = TextOverflow.Ellipsis, color = MaterialTheme.colorScheme.onSurface.copy(alpha = .45f), fontSize = 12.sp) }; Text(stringResource(R.string.share_sent), color = MaterialTheme.colorScheme.primary, fontSize = 13.sp) } }
     }
 }
 @Composable private fun ShareAction(title: String, modifier: Modifier, enabled: Boolean, onClick: () -> Unit) = Box(modifier.height(46.dp).meloXLiquidButton(shape = RoundedCornerShape(20.dp), enabled = enabled).clickable(enabled = enabled, onClick = onClick), contentAlignment = Alignment.Center) { Text(title, fontWeight = FontWeight.SemiBold) }

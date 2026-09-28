@@ -33,9 +33,11 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
+import com.lladlam.melox.R
 import com.lladlam.melox.core.account.NeteaseSessionStore
 import com.lladlam.melox.core.music.provider.PlaybackAccountSlot
 import com.lladlam.melox.core.network.NeteasePhoneAuthClient
@@ -56,7 +58,8 @@ fun NeteaseLoginScreen(
     onLoggedIn: () -> Unit,
     targetSlot: PlaybackAccountSlot = PlaybackAccountSlot.Main,
 ) {
-    val context = LocalContext.current.applicationContext
+    val activityContext = LocalContext.current
+    val context = activityContext.applicationContext
     val phoneAuthClient = remember { NeteasePhoneAuthClient() }
     var useWebLogin by remember {
         mutableStateOf(!MeloXRemoteConfigPolicy.capabilityEnabled(context, "netease_phone_login"))
@@ -108,7 +111,7 @@ fun NeteaseLoginScreen(
                     return@LaunchedEffect
                 }
                 verificationError = result.exceptionOrNull()?.message
-                    ?: "登录状态验证失败，请稍后重试"
+                    ?: activityContext.getString(R.string.account_login_verify_failed)
                 handledCookie = null
             }
             delay(500)
@@ -124,9 +127,9 @@ fun NeteaseLoginScreen(
 
     if (!useWebLogin) {
         MeloXPhoneCodeLoginScreen(
-            serviceName = "网易云音乐",
+            serviceName = stringResource(R.string.account_netease),
             brandColor = Color(0xFFE60026),
-            description = "使用手机号接收短信验证码，登录后即可同步你的网易云音乐内容。",
+            description = stringResource(R.string.account_netease_phone_desc),
             onClose = onDismiss,
             onSendCode = { countryCode, phone ->
                 runCatching { phoneAuthClient.sendCode(countryCode, phone) }
@@ -160,7 +163,7 @@ fun NeteaseLoginScreen(
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Text(
-                text = "取消",
+                text = stringResource(R.string.action_cancel),
                 modifier = Modifier
                     .meloXLiquidButton(
                         shape = RoundedCornerShape(18.dp),
@@ -175,12 +178,12 @@ fun NeteaseLoginScreen(
                 fontSize = 16.sp,
             )
             Text(
-                text = "手机号登录网易云音乐",
+                text = stringResource(R.string.account_netease_phone_title),
                 fontSize = 17.sp,
                 color = MaterialTheme.colorScheme.onBackground,
             )
             Text(
-                text = "取消",
+                text = stringResource(R.string.action_cancel),
                 modifier = Modifier.padding(8.dp),
                 color = Color.Transparent,
                 fontSize = 16.sp,
@@ -233,7 +236,7 @@ fun NeteaseLoginScreen(
                     Column(horizontalAlignment = Alignment.CenterHorizontally) {
                         CircularProgressIndicator()
                         Text(
-                            text = "正在验证登录状态…",
+                            text = stringResource(R.string.account_verifying_login),
                             modifier = Modifier.padding(top = 12.dp),
                             color = Color.White,
                         )

@@ -31,12 +31,14 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil3.compose.AsyncImage
+import com.lladlam.melox.R
 import com.lladlam.melox.core.account.NeteaseSessionStore
 import com.lladlam.melox.core.library.NeteaseLibraryClient
 import com.lladlam.melox.core.library.NeteasePlaylistSummary
@@ -119,7 +121,7 @@ private fun AccountHomeScreen(userId: Long, onBack: () -> Unit) {
         error = null
         runCatching { social.userPlayRecords(userId, requested) }
             .onSuccess { records = it }
-            .onFailure { error = it.message ?: "听歌排行加载失败" }
+            .onFailure { error = it.message ?: context.getString(R.string.player_rank_failed) }
         loading = false
     }
 
@@ -133,8 +135,8 @@ private fun AccountHomeScreen(userId: Long, onBack: () -> Unit) {
             playlists = loadedPlaylists
             runCatching { social.userPlayRecords(userId, period) }
                 .onSuccess { records = it }
-                .onFailure { error = it.message ?: "听歌排行加载失败" }
-        }.onFailure { error = it.message ?: "用户资料加载失败" }
+                .onFailure { error = it.message ?: context.getString(R.string.player_rank_failed) }
+        }.onFailure { error = it.message ?: context.getString(R.string.account_profile_failed) }
         loading = false
     }
 
@@ -146,7 +148,7 @@ private fun AccountHomeScreen(userId: Long, onBack: () -> Unit) {
     }
 
     MeloXPinnedListPage(
-        title = "个人中心",
+        title = stringResource(R.string.account_profile_title),
         onNavigateBack = onBack,
         bottomPadding = MeloXBottomContentClearance,
     ) {
@@ -171,18 +173,18 @@ private fun AccountHomeScreen(userId: Long, onBack: () -> Unit) {
                         modifier = Modifier.fillMaxWidth(),
                         style = MeloXGlassButtonStyle.BorderedProminent,
                         shape = MeloXShapes.capsule,
-                    ) { Text("重试") }
+                    ) { Text(stringResource(R.string.account_retry)) }
                 }
             }
         }
 
         if (profile != null) {
             item(key = "rank-title") {
-                Text("听歌排行", fontSize = 23.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(top = 10.dp, start = 4.dp))
+                Text(stringResource(R.string.account_listening_rank), fontSize = 23.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(top = 10.dp, start = 4.dp))
             }
             item(key = "rank-period") {
                 MeloXGlassSegmentedControl(
-                    items = listOf("最近一周", "所有时间"),
+                    items = listOf(stringResource(R.string.player_rank_week), stringResource(R.string.player_rank_all_time)),
                     selectedIndex = if (period == MeloXUserPlayRecordPeriod.Week) 0 else 1,
                     onSelected = { index ->
                         val requested = if (index == 0) MeloXUserPlayRecordPeriod.Week else MeloXUserPlayRecordPeriod.AllTime
@@ -202,7 +204,7 @@ private fun AccountHomeScreen(userId: Long, onBack: () -> Unit) {
 
         if (playlists.isNotEmpty()) {
             item(key = "playlist-title") {
-                Text("歌单 · ${playlists.size}", fontSize = 23.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(top = 14.dp, start = 4.dp))
+                Text(stringResource(R.string.account_playlists_count, playlists.size), fontSize = 23.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(top = 14.dp, start = 4.dp))
             }
             playlists.forEach { playlist ->
                 item(key = "playlist-${playlist.id}") {
@@ -231,12 +233,12 @@ private fun AccountHero(profile: MeloXAccountDetail, playlistCount: Int) {
             profile.signature?.takeIf(String::isNotBlank)?.let {
                 Text(it, color = MaterialTheme.colorScheme.onSurfaceVariant, textAlign = TextAlign.Center, maxLines = 3, overflow = TextOverflow.Ellipsis)
             }
-            Text("Lv.${profile.level} · 累计听歌 ${profile.listenSongs} 首", color = MaterialTheme.colorScheme.onSurfaceVariant)
-            Text("用户 ID ${profile.userId}", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = .72f))
+            Text(stringResource(R.string.account_level_listens, profile.level, profile.listenSongs), color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Text(stringResource(R.string.account_user_id, profile.userId), style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = .72f))
             Row(Modifier.fillMaxWidth().padding(top = 5.dp)) {
-                AccountMetric(profile.follows, "关注", Modifier.weight(1f))
-                AccountMetric(profile.followers, "粉丝", Modifier.weight(1f))
-                AccountMetric(profile.playlistCount.takeIf { it > 0 } ?: playlistCount, "歌单", Modifier.weight(1f))
+                AccountMetric(profile.follows, stringResource(R.string.account_following), Modifier.weight(1f))
+                AccountMetric(profile.followers, stringResource(R.string.account_followers), Modifier.weight(1f))
+                AccountMetric(profile.playlistCount.takeIf { it > 0 } ?: playlistCount, stringResource(R.string.account_playlists), Modifier.weight(1f))
             }
         }
     }
@@ -260,7 +262,7 @@ private fun AccountRankRow(index: Int, record: MeloXUserPlayRecord, onClick: () 
                 Text(record.song.name, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 Text(record.song.artists, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
             }
-            Text("${record.playCount} 次", style = MaterialTheme.typography.labelMedium)
+            Text(stringResource(R.string.player_play_count, record.playCount), style = MaterialTheme.typography.labelMedium)
         }
     }
 }
@@ -272,7 +274,7 @@ private fun AccountPlaylistRow(playlist: NeteasePlaylistSummary, onClick: () -> 
             AsyncImage(playlist.coverUrl, null, contentScale = ContentScale.Crop, modifier = Modifier.size(54.dp).clip(RoundedCornerShape(11.dp)))
             Column(Modifier.weight(1f).padding(start = 12.dp)) {
                 Text(playlist.name, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                Text("${playlist.trackCount} 首歌曲", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text(stringResource(R.string.player_track_count, playlist.trackCount), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
             Text("›", fontSize = 24.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
