@@ -14,7 +14,8 @@ data class YouTubeSession(
     val pageId: String = "",
     val accountName: String = "",
 ) {
-    val isLoggedIn: Boolean get() = cookie.isNotBlank() && dataSyncId.isNotBlank()
+    /** Square treats a stored cookie as signed in. `dataSyncId` only picks a channel. */
+    val isLoggedIn: Boolean get() = cookie.contains("SAPISID=")
 }
 
 object YouTubeSessionStore {

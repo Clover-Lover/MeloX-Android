@@ -9,6 +9,7 @@ import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -16,10 +17,13 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.viewinterop.AndroidView
-import com.metrolist.innertube.YouTube
 import com.lladlam.melox.core.provider.youtubemusic.YouTubeSession
 import com.lladlam.melox.core.provider.youtubemusic.YouTubeSessionStore
+import com.metrolist.innertube.YouTube
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import org.json.JSONArray
 
 /**
  * Square-compatible Google WebView login. MeloX stores only the resulting session context.
@@ -28,6 +32,10 @@ import kotlinx.coroutines.launch
  * one its own web player uses: a Google cookie plus the `VISITOR_DATA` and `DATASYNC_ID`
  * the page keeps in `window.yt.config_`. The web view loads Google's real sign-in page and
  * MeloX never sees the credentials, only the cookie that results.
+ *
+ * `SAPISID` is written for `youtube.com`, not always for `music.youtube.com`, and it can
+ * land a moment after the page finishes. Reading a single host the instant the page loads
+ * is how a finished login comes back with no cookie.
  */
 @SuppressLint("SetJavaScriptEnabled")
 @Composable
@@ -42,43 +50,61 @@ fun YouTubeLoginScreen(
     var visitorData by remember { mutableStateOf("") }
     var dataSyncId by remember { mutableStateOf("") }
 
-    fun complete() {
+    fun complete(abandonIfMissing: Boolean) {
         if (completing) return
-        val cookie = CookieManager.getInstance().getCookie(MUSIC_URL).orEmpty()
-        // Backing out before signing in is an ordinary outcome, not a failure.
-        if (cookie.isBlank()) {
-            onDismiss()
+        val cookie = youtubeSessionCookie()
+        // A music.youtube.com page can finish before Google writes SAPISID.
+        // Reading then stores a cookie InnerTube cannot authorize with.
+        if (!cookie.contains("SAPISID=")) {
+            if (abandonIfMissing) onDismiss()
             return
         }
         completing = true
-        val capturedVisitorData = visitorData
-        val capturedDataSyncId = dataSyncId
         scope.launch {
             YouTube.cookie = cookie
-            YouTube.visitorData = capturedVisitorData.takeIf(String::isNotBlank)
-            YouTube.dataSyncId = capturedDataSyncId.takeIf(String::isNotBlank)
-            // The session is only worth keeping if it can actually read the account.
-            YouTube.accountInfo()
-                .onSuccess { info ->
-                    webView?.apply {
-                        stopLoading()
-                        clearHistory()
-                    }
-                    YouTubeSessionStore.write(
-                        context,
-                        YouTubeSession(
-                            cookie = cookie,
-                            visitorData = capturedVisitorData,
-                            dataSyncId = capturedDataSyncId,
-                            accountName = info.name,
-                        ),
-                    )
-                    onLoggedIn()
+            YouTube.visitorData = visitorData
+            YouTube.dataSyncId = dataSyncId
+            if (visitorData.isBlank()) {
+                YouTube.visitorData().onSuccess { fresh ->
+                    visitorData = fresh
+                    YouTube.visitorData = fresh
                 }
-                .onFailure {
-                    completing = false
-                    onDismiss()
+            }
+            val resolvedVisitorData = visitorData
+            val resolvedDataSyncId = dataSyncId
+            // Cookie first. accountInfo() only supplies the display name; failing it
+            // used to throw the SAPISID session away and look like login never happened.
+            val name = YouTube.accountInfo().getOrNull()?.name.orEmpty()
+            webView?.apply {
+                stopLoading()
+                clearHistory()
+            }
+            YouTubeSessionStore.write(
+                context,
+                YouTubeSession(
+                    cookie = cookie,
+                    visitorData = resolvedVisitorData,
+                    dataSyncId = resolvedDataSyncId,
+                    accountName = name,
+                ),
+            )
+            onLoggedIn()
+        }
+    }
+
+    LaunchedEffect(webView) {
+        val view = webView ?: return@LaunchedEffect
+        while (isActive && !completing) {
+            view.evaluateJavascript(CONFIG_SCRIPT) { value ->
+                decodeJsPair(value)?.let { (visitor, sync) ->
+                    if (visitor.isNotBlank()) visitorData = visitor
+                    if (sync.isNotBlank()) dataSyncId = sync.substringBefore("||")
                 }
+            }
+            if (youtubeSessionCookie().contains("SAPISID=")) {
+                complete(abandonIfMissing = false)
+            }
+            delay(600)
         }
     }
 
@@ -86,7 +112,7 @@ fun YouTubeLoginScreen(
         val view = webView
         // Google's flow is several pages deep, so back should walk it rather than
         // abandoning a sign-in halfway through.
-        if (view?.canGoBack() == true) view.goBack() else complete()
+        if (view?.canGoBack() == true) view.goBack() else complete(abandonIfMissing = true)
     }
 
     Box(Modifier.fillMaxSize()) {
@@ -98,33 +124,28 @@ fun YouTubeLoginScreen(
                     settings.domStorageEnabled = true
                     webViewClient = object : WebViewClient() {
                         override fun onPageFinished(view: WebView, url: String?) {
-                            view.loadUrl(
-                                "javascript:Square.visitorData(window.yt.config_ && window.yt.config_.VISITOR_DATA)",
-                            )
-                            view.loadUrl(
-                                "javascript:Square.dataSyncId(window.yt.config_ && window.yt.config_.DATASYNC_ID)",
-                            )
-                            // Landing back on music.youtube.com with a cookie is what
-                            // "signed in" looks like; the flow can be any number of
-                            // pages before this one.
-                            val signedIn = url?.contains("music.youtube.com") == true &&
-                                CookieManager.getInstance().getCookie(MUSIC_URL).orEmpty().isNotBlank()
-                            if (signedIn && !completing) complete()
+                            // Same injection Square uses. evaluateJavascript cannot call
+                            // the interface, and a music page can finish before SAPISID lands.
+                            view.loadUrl(VISITOR_SCRIPT)
+                            view.loadUrl(DATA_SYNC_SCRIPT)
                         }
                     }
-                    CookieManager.getInstance().setAcceptCookie(true)
-                    CookieManager.getInstance().setAcceptThirdPartyCookies(this, true)
+                    val cookies = CookieManager.getInstance()
+                    cookies.setAcceptCookie(true)
+                    cookies.setAcceptThirdPartyCookies(this, true)
                     addJavascriptInterface(
                         object {
                             @JavascriptInterface
                             fun visitorData(value: String?) {
-                                if (!value.isNullOrBlank()) visitorData = value
+                                if (!value.isNullOrBlank() && value != "null") visitorData = value
                             }
 
                             @JavascriptInterface
                             fun dataSyncId(value: String?) {
                                 // Two ids separated by `||`; the first is this account's.
-                                if (!value.isNullOrBlank()) dataSyncId = value.substringBefore("||")
+                                if (!value.isNullOrBlank() && value != "null") {
+                                    dataSyncId = value.substringBefore("||")
+                                }
                             }
                         },
                         "Square",
@@ -137,6 +158,47 @@ fun YouTubeLoginScreen(
     }
 }
 
-private const val MUSIC_URL = "https://music.youtube.com"
+/**
+ * Google writes the session across several hosts. `getCookie("music.youtube.com")`
+ * often returns the anonymous visitor cookie and omits `SAPISID`, which lives on
+ * `youtube.com` / `.google.com`. Merge them the same way the web player sends one jar.
+ */
+internal fun youtubeSessionCookie(): String {
+    val manager = CookieManager.getInstance()
+    manager.flush()
+    val values = linkedMapOf<String, String>()
+    COOKIE_URLS.forEach { url ->
+        manager.getCookie(url)?.split(';')?.forEach { item ->
+            val parts = item.trim().split('=', limit = 2)
+            if (parts.size == 2 && parts[0].isNotBlank() && parts[1].isNotBlank()) {
+                values[parts[0]] = parts[1]
+            }
+        }
+    }
+    return values.entries.joinToString("; ") { (key, value) -> "$key=$value" }
+}
+
+private fun decodeJsPair(value: String?): Pair<String, String>? {
+    val raw = value?.takeIf { it.isNotBlank() && it != "null" } ?: return null
+    val decoded = runCatching { JSONArray("[$raw]").getString(0) }.getOrElse { raw.trim('"') }
+    if (decoded.isBlank() || decoded == "null") return null
+    val parts = decoded.split('\u001f', limit = 2)
+    return parts.getOrElse(0) { "" } to parts.getOrElse(1) { "" }
+}
+
+private val COOKIE_URLS = listOf(
+    "https://music.youtube.com",
+    "https://www.youtube.com",
+    "https://youtube.com",
+    "https://accounts.google.com",
+    "https://google.com",
+)
+
+private const val VISITOR_SCRIPT =
+    "javascript:Square.visitorData(window.yt && window.yt.config_ && window.yt.config_.VISITOR_DATA)"
+private const val DATA_SYNC_SCRIPT =
+    "javascript:Square.dataSyncId(window.yt && window.yt.config_ && window.yt.config_.DATASYNC_ID)"
+private const val CONFIG_SCRIPT =
+    "(function(){var c=window.yt&&window.yt.config_;if(!c)return '';return (c.VISITOR_DATA||'')+'\\u001f'+(c.DATASYNC_ID||'');})()"
 private const val SIGN_IN_URL =
     "https://accounts.google.com/ServiceLogin?continue=https%3A%2F%2Fmusic.youtube.com"
