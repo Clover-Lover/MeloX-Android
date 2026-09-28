@@ -191,8 +191,8 @@ object HyperOsFocusBridge {
         songTitle: String,
         artist: String,
     ) {
-        val left = songLabel(songTitle, artist).ifBlank { "MeloX" }.take(24)
-        val right = lyric.take(42).ifBlank { "♪" }
+        val left = lyric.take(42).ifBlank { "♪" }
+        val right = songLabel(songTitle, artist).ifBlank { "MeloX" }.take(24)
         imageTextInfoLeft {
             type = 1
             textInfo {

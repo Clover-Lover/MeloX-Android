@@ -416,38 +416,19 @@ fun MeloXIOSMiniPlayer(
                             TextStyle(platformStyle = PlatformTextStyle(includeFontPadding = false)),
                         ),
                     )
-                    // ⚠ `height(artistHeight)` 只是**布局预算**（展开 15dp → 收缩态 0dp），
-                    //   **不能**让作者名的**绘制**也受这个高度约束（2026-09-25 跨机型修）：
-                    //   一旦 Text 被 15dp 的 maxHeight 量过，字身 descent 超出行盒的部分就会被
-                    //   切掉 —— 基准机上只削 1~2px 看不出来，fontScale 更大的机型直接削掉四成，
-                    //   就是本次「作者名下沉被裁切」的现场。
-                    //   ⇒ ① `wrapContentHeight(unbounded = true)`：Text 按自身行高自然测量，
-                    //        溢出 15dp 的部分照常画出来（下方还有 9dp 内边距 + 胶囊裁剪余量兜底）；
-                    //     ② **去掉这一层的 `graphicsLayer { alpha }`**：离屏层同样按盒子尺寸裁
-                    //        溢出内容，是第二个裁切源；淡出改由文字颜色 alpha 承担（视觉等价）。
-                    Box(
-                        modifier = Modifier
-                            .height(artistHeight)
-                            .wrapContentHeight(Alignment.CenterVertically, unbounded = true),
-                    ) {
-                        Text(
-                            text = shownArtist,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                            fontSize = artistFontSize,
-                            lineHeight = artistLineHeight,
-                            softWrap = false,
-                            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.64f),
-                            modifier = Modifier.wrapContentHeight(
-                                align = Alignment.CenterVertically,
-                                unbounded = true,
-                            ),
-                            // 同标题：必须关掉字体额外留白，否则作者名会被 15dp 的行盒裁掉下半截。
-                            style = LocalTextStyle.current.merge(
-                                TextStyle(platformStyle = PlatformTextStyle(includeFontPadding = false)),
-                            ),
-                        )
-                    }
+                    Text(
+                        text = shownArtist,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        fontSize = artistFontSize,
+                        lineHeight = artistLineHeight,
+                        softWrap = false,
+                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.64f),
+                        modifier = Modifier.height(artistHeight),
+                        style = LocalTextStyle.current.merge(
+                            TextStyle(platformStyle = PlatformTextStyle(includeFontPadding = false)),
+                        ),
+                    )
                 }
                 }
                 adjacentEntry?.let { entry ->
@@ -490,6 +471,7 @@ fun MeloXIOSMiniPlayer(
                                 entry.artist, maxLines = 1, overflow = TextOverflow.Ellipsis,
                                 fontSize = artistFontSize, lineHeight = artistLineHeight, softWrap = false,
                                 color = MaterialTheme.colorScheme.onSurface.copy(alpha = .64f),
+                                modifier = Modifier.height(artistHeight),
                                 style = noFontPadding,
                             )
                         }

@@ -39,10 +39,12 @@ object MeloXLogExporter {
         deviceInfo: MeloXLogDeviceInfo = collectDeviceInfo(context),
     ): MeloXLogExportResult {
         val logcat = readProcessLogs()
+        val tombstone = readPreviousCrash()
+        val persistedCrash = MeloXCrashStore.read(context)
         val packageInfo = context.packageManager.getPackageInfo(context.packageName, 0)
         val content = buildString {
             appendLine("MeloX Android 日志")
-            appendLine("日志范围：当前 MeloX 进程可读取的全部日志")
+            appendLine("日志范围：当前 MeloX 进程的 Verbose/Debug/Info/Warn/Error，以及上次崩溃记录")
             appendLine("导出时间：${System.currentTimeMillis()}")
             appendLine("进程：${android.os.Process.myPid()}")
             appendLine("应用包名：${context.packageName}")
@@ -59,7 +61,14 @@ object MeloXLogExporter {
             appendLine("已登录音乐源：${deviceInfo.loggedMusicSources.takeIf { it.isNotEmpty() }?.joinToString("、") ?: "无"}")
             appendLine("应用日志条数：${logcat.lineCount}")
             appendLine()
-            appendLine("以下为当前 MeloX 进程日志，不包含其他应用进程日志：")
+            appendLine("上次未捕获崩溃：")
+            appendLine(persistedCrash ?: "（没有已保存的崩溃）")
+            appendLine()
+            appendLine("系统崩溃缓冲（包含已退出的 MeloX 进程）：")
+            appendLine()
+            append(tombstone.ifBlank { "（系统崩溃缓冲为空或当前系统不允许读取）\n" })
+            appendLine()
+            appendLine("以下为当前 MeloX 进程日志，包含 Debug，不包含其他应用进程日志：")
             appendLine()
             append(logcat.text.ifBlank { "（当前没有可读取的应用日志）\n" })
         }
@@ -78,6 +87,9 @@ object MeloXLogExporter {
                 "-d",
                 "-v",
                 "epoch",
+                "-b",
+                "all",
+                "*:V",
                 "--pid=${android.os.Process.myPid()}",
             )
                 .redirectErrorStream(true)
@@ -99,6 +111,28 @@ object MeloXLogExporter {
             lineCount = lines.size,
         )
     }
+
+    private fun readPreviousCrash(): String = runCatching {
+        val process = ProcessBuilder(
+            "logcat",
+            "-d",
+            "-v",
+            "epoch",
+            "-b",
+            "crash",
+            "-t",
+            "400",
+        ).redirectErrorStream(true).start()
+        val output = process.inputStream.bufferedReader(Charsets.UTF_8).use { it.readText() }
+        if (!process.waitFor(CommandTimeoutSeconds, TimeUnit.SECONDS)) {
+            process.destroyForcibly()
+            return@runCatching ""
+        }
+        output.lineSequence()
+            .filter { line -> line.contains("melox", ignoreCase = true) || line.contains("AndroidRuntime") }
+            .joinToString("\n")
+            .let { if (it.isBlank()) "" else "$it\n" }
+    }.getOrDefault("")
 
     private fun detectSystemVersion(): String {
         val hyperOsName = systemProperty("ro.mi.os.version.name")
