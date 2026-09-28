@@ -34,13 +34,17 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.AnimatedVisibilityScope
 import androidx.compose.animation.ExperimentalSharedTransitionApi
 import androidx.compose.animation.SharedTransitionLayout
+import androidx.compose.animation.SharedTransitionScope
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.scaleOut
 import androidx.compose.animation.togetherWith
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -119,6 +123,7 @@ import com.lladlam.melox.ui.settings.MeloXSettingsRuntime
 import com.lladlam.melox.ui.layout.rememberMeloXWindowInfo
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
@@ -144,6 +149,10 @@ private fun exploreCategoryLabel(id: String): String = when (id) {
     "ACG" -> stringResource(R.string.home_cat_acg)
     else -> id
 }
+
+// 首页/发现页覆盖层过渡的收尾余量：动画时长之外再留一点，等 sharedElement 的
+// overlay 层真正收干净，再解锁并放开卡片。给少了会在切换瞬间看到 overlay 残影。
+private const val DiscoveryOverlaySettleMillis = 60L
 
 private sealed interface DiscoveryTrack {
     val key: String
@@ -249,6 +258,20 @@ private fun NeteaseHomeDataScreen(onOpenTool: (String) -> Unit) {
     var refreshing by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf<String?>(null) }
     var selectedCollection by remember { mutableStateOf<DiscoveryCollection?>(null) }
+    // 内容与可见性分开持有：返回时只把 selectedCollection 置空（让列表卡片重新进入过渡），
+    // overlayCollection 保留，退出过渡期间详情仍被组合 → 封面才能一镜到底地 morph 回卡片。
+    var overlayCollection by remember { mutableStateOf<DiscoveryCollection?>(null) }
+    // 卡片「已被详情占用」的稳定 key。不能用瞬变的 selectedCollection?.key：返回瞬间它
+    // 变 null，刚收起的那张卡会立刻重新满足 `destinationKey != selectedKey` 而「复活」
+    // 进 enter，可它的 sharedElement 还被退场中的 hero 占用 —— 卡片就卡在 overlay
+    // 中间态不动。这里让它在退场动画彻底跑完前一直指向旧详情。
+    var occupiedCollectionKey by remember { mutableStateOf<String?>(null) }
+    var selectedArtworkSlot by remember { mutableStateOf<String?>(null) }
+    // 覆盖层进入/退出过渡是否仍在进行。退出没跑完就点下一张卡会让 HomeOverlayPage 的
+    // AnimatedVisibility 取消旧过渡、直奔新目标，旧卡被遗弃在半途。过渡期间的打开请求
+    // 先排队，等本次过渡跑完立刻执行（直接忽略会丢输入）。
+    var overlayTransitionBusy by remember { mutableStateOf(false) }
+    var pendingCollection by remember { mutableStateOf<DiscoveryCollection?>(null) }
     var songList by remember { mutableStateOf<HomeSongList?>(null) }
     var activeAction by remember { mutableStateOf<String?>(null) }
     var localRecommendations by remember { mutableStateOf(emptyList<com.lladlam.melox.core.recommendation.LocalRecommendationItem>()) }
@@ -338,15 +361,40 @@ private fun NeteaseHomeDataScreen(onOpenTool: (String) -> Unit) {
         )
     }
 
-    MeloXHomeLayout(
-        source = MusicSource.Netease,
-        account = account,
-        blocks = blocks,
-        refreshing = refreshing,
-        error = error,
-        onRefresh = { refresh(true) },
-        activeAction = activeAction,
-        onQuickAction = quickAction@ { action ->
+    SharedTransitionLayout(Modifier.fillMaxSize()) {
+        val sharedScope = this
+        // 覆盖层过渡生命周期：进入时锁住并记住占用的卡片，退出跑完后才解锁、放开卡片。
+        // 详见 [occupiedCollectionKey] / [overlayTransitionBusy] 的注释。
+        LaunchedEffect(selectedCollection) {
+            overlayTransitionBusy = true
+            val opening = selectedCollection
+            if (opening != null) {
+                occupiedCollectionKey = selectedArtworkSlot?.let { "$it:${opening.key}" } ?: opening.key
+                delay(MeloXMotion.PageEnterMillis.toLong() + DiscoveryOverlaySettleMillis)
+            } else if (overlayCollection != null) {
+                delay(MeloXMotion.PageExitMillis.toLong() + DiscoveryOverlaySettleMillis)
+                occupiedCollectionKey = null
+                selectedArtworkSlot = null
+                overlayCollection = null
+            }
+            overlayTransitionBusy = false
+            // 只在这段过渡自己跑完后接上排队请求。中途被取消时不能在这里清空，
+            // 否则下一次点击会被丢掉，用户还得再点一次。
+            pendingCollection?.let {
+                pendingCollection = null
+                selectedCollection = it
+                overlayCollection = it
+            }
+        }
+        MeloXHomeLayout(
+            source = MusicSource.Netease,
+            account = account,
+            blocks = blocks,
+            refreshing = refreshing,
+            error = error,
+            onRefresh = { refresh(true) },
+            activeAction = activeAction,
+            onQuickAction = quickAction@ { action ->
             when (action) {
                 "听歌识曲" -> {
                     onOpenTool("Recognition")
@@ -411,24 +459,45 @@ private fun NeteaseHomeDataScreen(onOpenTool: (String) -> Unit) {
                 activeAction = null
             }
         },
-        onCollection = { selectedCollection = it },
-    )
+        onCollection = { collection, slot ->
+            // 上一段过渡（进入/退出）没跑完就先排队，等它跑完立刻执行；直接执行会
+            // 掐断旧过渡把卡片遗弃在半途，直接忽略又会丢输入。
+            selectedArtworkSlot = slot
+            if (overlayTransitionBusy) pendingCollection = collection
+            else {
+                selectedCollection = collection
+                overlayCollection = collection
+            }
+        },
+            selectedCollectionKey = occupiedCollectionKey,
+            sharedTransitionScope = sharedScope,
+        )
 
-    // 首页留在底下。歌单页只是叠上去，打开时从右侧滑入，预见式返回滑开时露出首页。
-    HomeOverlayPage(
-        shown = selectedCollection != null,
-        onBack = { selectedCollection = null },
-    ) {
-        selectedCollection?.let { collection ->
-            DiscoveryCollectionDetail(collection = collection, onBack = { selectedCollection = null })
+        // 首页留在底下。歌单页只是叠上去，打开时从右侧滑入，预见式返回滑开时露出首页。
+        HomeOverlayPage(
+            shown = selectedCollection != null,
+            onBack = { selectedCollection = null },
+        ) {
+            overlayCollection?.let { collection ->
+                DiscoveryCollectionDetail(
+                    collection = collection,
+                    onBack = { selectedCollection = null },
+                    sharedTransitionScope = sharedScope,
+                    animatedVisibilityScope = this,
+                    artworkSharedKey = discoveryCollectionArtworkSharedKey(
+                        collection,
+                        selectedArtworkSlot ?: "detail",
+                    ),
+                )
+            }
         }
-    }
-    HomeOverlayPage(
-        shown = songList != null,
-        onBack = { songList = null },
-    ) {
-        songList?.let { list ->
-            HomeSongListDetail(list = list, onBack = { songList = null })
+        HomeOverlayPage(
+            shown = songList != null,
+            onBack = { songList = null },
+        ) {
+            songList?.let { list ->
+                HomeSongListDetail(list = list, onBack = { songList = null })
+            }
         }
     }
 }
@@ -439,15 +508,23 @@ private val HomeSongListActions = setOf("每日推荐", "热歌榜", "私人雷�
 private fun HomeOverlayPage(
     shown: Boolean,
     onBack: () -> Unit,
-    content: @Composable () -> Unit,
+    // 以 receiver 暴露 AnimatedVisibilityScope，让内部详情页能把封面
+    // 接到同一个 SharedTransitionLayout 里的列表卡片上（一镜到底）。
+    content: @Composable AnimatedVisibilityScope.() -> Unit,
 ) {
     val progress = remember { Animatable(0f) }
+    // 手势返回走完后 progress 停在 1（页面已滑出屏外）。下一次进入必须归零，
+    // 否则新页面会带着满位移进来、永远停在屏幕右侧外面。
+    LaunchedEffect(shown) { if (shown) progress.snapTo(0f) }
     // 详情叠在首页上。普通返回和预见式返回都先关掉它，
     // 滑开时露出底下的首页，而不是灰色底或「再按一次退出」。
     BackHandler(enabled = shown, onBack = onBack)
     PredictiveBackHandler(enabled = shown) {
         try {
             it.collect { event -> progress.snapTo(event.progress) }
+            // 先把没有共享元素的页面滑出屏外再关闭。每日推荐、热歌榜、私人雷达
+            // 也走这里；如果先关闭，退出动画会把停在半路的页面留在首页上面。
+            // 关闭之后只把位移归零，给下一次进入用，不再补一段滑出。
             progress.animateTo(1f, tween(160))
             onBack()
             progress.snapTo(0f)
@@ -610,7 +687,7 @@ private fun ProviderHomeDataScreen(source: MusicSource, onOpenTool: (String) -> 
                 "云盘" -> onOpenTool("Cloud")
             }
         },
-        onCollection = { selectedCollection = it },
+        onCollection = { collection, _ -> selectedCollection = collection },
     )
     HomeOverlayPage(
         shown = selectedCollection != null,
@@ -632,7 +709,12 @@ private fun MeloXHomeLayout(
     onRefresh: () -> Unit,
     activeAction: String?,
     onQuickAction: (String) -> Unit,
-    onCollection: (DiscoveryCollection) -> Unit,
+    onCollection: (DiscoveryCollection, String) -> Unit,
+    // 当前打开的 collection key。被打开的那张卡片必须「退出」，否则
+    // sharedElement 没有 enter/exit 可配对，封面不会 morph（官方范式）。
+    selectedCollectionKey: String? = null,
+    // 由 host 顶层 SharedTransitionLayout 传入；为空时卡片不做共享元素。
+    sharedTransitionScope: SharedTransitionScope? = null,
 ) {
     val context = LocalContext.current.applicationContext
     PullToRefreshBox(isRefreshing = refreshing, onRefresh = onRefresh, modifier = Modifier.fillMaxSize()) {
@@ -668,7 +750,15 @@ private fun MeloXHomeLayout(
                         HomeBlock.QuickActions -> item { HomeQuickActions(source, activeAction, onQuickAction) }
                         is HomeBlock.Collections -> {
                             item { SectionTitle(block.title, block.trailing, Modifier.padding(horizontal = 20.dp)) }
-                            item { CollectionRow(block.values, onCollection) }
+                            item {
+                                CollectionRow(
+                                    values = block.values,
+                                    slot = block.title,
+                                    onSelect = onCollection,
+                                    selectedCollectionKey = selectedCollectionKey,
+                                    sharedTransitionScope = sharedTransitionScope,
+                                )
+                            }
                         }
                         is HomeBlock.Tracks -> {
                             item { SectionTitle(block.title, block.trailing, Modifier.padding(horizontal = 20.dp)) }
@@ -842,6 +932,14 @@ private fun NeteaseExploreDataScreen() {
     var refreshing by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf<String?>(null) }
     var selectedCollection by remember { mutableStateOf<DiscoveryCollection?>(null) }
+    // 见 NeteaseHomeDataScreen：内容保留到退出过渡结束，返回时封面才能 morph 回卡片。
+    var overlayCollection by remember { mutableStateOf<DiscoveryCollection?>(null) }
+    // 见 NeteaseHomeDataScreen：卡片占用 key 要在退场动画跑完前保持指向旧详情，
+    // 过渡进行中的打开请求先排队，避免并行动画把旧卡遗弃在中间态。
+    var occupiedCollectionKey by remember { mutableStateOf<String?>(null) }
+    var overlayTransitionBusy by remember { mutableStateOf(false) }
+    var pendingCollection by remember { mutableStateOf<DiscoveryCollection?>(null) }
+    var selectedArtworkSlot by remember { mutableStateOf<String?>(null) }
 
     fun refresh() {
         if (category == "播客" || refreshing) return
@@ -865,23 +963,66 @@ private fun NeteaseExploreDataScreen() {
         if (NeteaseLibraryCache.beginExploreColdStartRefresh(category)) refresh()
     }
 
-    MeloXExploreLayout(
-        categories = visibleCategories,
-        category = category,
-        onCategory = { category = it },
-        collections = collections,
-        refreshing = refreshing,
-        error = error,
-        onRefresh = ::refresh,
-        showPodcast = category == "播客",
-        onCollection = { selectedCollection = it },
-    )
-    HomeOverlayPage(
-        shown = selectedCollection != null,
-        onBack = { selectedCollection = null },
-    ) {
-        selectedCollection?.let { collection ->
-            DiscoveryCollectionDetail(collection = collection, onBack = { selectedCollection = null })
+    SharedTransitionLayout(Modifier.fillMaxSize()) {
+        val sharedScope = this
+        // 覆盖层过渡生命周期，同 NeteaseHomeDataScreen。
+        LaunchedEffect(selectedCollection) {
+            overlayTransitionBusy = true
+            val opening = selectedCollection
+            if (opening != null) {
+                occupiedCollectionKey = selectedArtworkSlot?.let { "$it:${opening.key}" } ?: opening.key
+                delay(MeloXMotion.PageEnterMillis.toLong() + DiscoveryOverlaySettleMillis)
+            } else if (overlayCollection != null) {
+                delay(MeloXMotion.PageExitMillis.toLong() + DiscoveryOverlaySettleMillis)
+                occupiedCollectionKey = null
+                selectedArtworkSlot = null
+                overlayCollection = null
+            }
+            overlayTransitionBusy = false
+            pendingCollection?.let {
+                pendingCollection = null
+                selectedCollection = it
+                overlayCollection = it
+            }
+        }
+        MeloXExploreLayout(
+            categories = visibleCategories,
+            category = category,
+            onCategory = { category = it },
+            collections = collections,
+            refreshing = refreshing,
+            error = error,
+            onRefresh = ::refresh,
+            showPodcast = category == "播客",
+            onCollection = { collection, slot ->
+                // 上一段过渡（进入/退出）没跑完就先排队，等它跑完立刻执行；直接执行会
+                // 掐断旧过渡把卡片遗弃在半途，直接忽略又会丢输入。
+                selectedArtworkSlot = slot
+                if (overlayTransitionBusy) pendingCollection = collection
+                else {
+                    selectedCollection = collection
+                    overlayCollection = collection
+                }
+            },
+            selectedCollectionKey = occupiedCollectionKey,
+            sharedTransitionScope = sharedScope,
+        )
+        HomeOverlayPage(
+            shown = selectedCollection != null,
+            onBack = { selectedCollection = null },
+        ) {
+            overlayCollection?.let { collection ->
+                DiscoveryCollectionDetail(
+                    collection = collection,
+                    onBack = { selectedCollection = null },
+                    sharedTransitionScope = sharedScope,
+                    animatedVisibilityScope = this,
+                    artworkSharedKey = discoveryCollectionArtworkSharedKey(
+                        collection,
+                        selectedArtworkSlot ?: "detail",
+                    ),
+                )
+            }
         }
     }
 }
@@ -933,7 +1074,7 @@ private fun ProviderExploreDataScreen(source: MusicSource) {
         error = if (home == null) context.getString(R.string.home_explore_unavailable, source.displayName) else error,
         onRefresh = ::refresh,
         showPodcast = false,
-        onCollection = { selectedCollection = it },
+        onCollection = { collection, _ -> selectedCollection = collection },
     )
     HomeOverlayPage(
         shown = selectedCollection != null,
@@ -955,7 +1096,9 @@ private fun MeloXExploreLayout(
     error: String?,
     onRefresh: () -> Unit,
     showPodcast: Boolean,
-    onCollection: (DiscoveryCollection) -> Unit,
+    onCollection: (DiscoveryCollection, String) -> Unit,
+    selectedCollectionKey: String? = null,
+    sharedTransitionScope: SharedTransitionScope? = null,
 ) {
     Column(Modifier.fillMaxSize().statusBarsPadding().padding(top = 18.dp)) {
         MeloXIosTopBar(
@@ -994,7 +1137,13 @@ private fun MeloXExploreLayout(
                 MeloXPodcastScreen()
             } else {
                 PullToRefreshBox(isRefreshing = refreshing, onRefresh = onRefresh, modifier = Modifier.fillMaxSize()) {
-                    if (collections.isEmpty()) EmptyOrLoading(refreshing, error) else CollectionGrid(collections, onCollection)
+                    if (collections.isEmpty()) EmptyOrLoading(refreshing, error) else CollectionGrid(
+                        values = collections,
+                        slot = category,
+                        onSelect = onCollection,
+                        selectedCollectionKey = selectedCollectionKey,
+                        sharedTransitionScope = sharedTransitionScope,
+                    )
                 }
             }
         }
@@ -1020,14 +1169,56 @@ private fun SectionTitle(title: String, trailing: String, modifier: Modifier = M
     Text(trailing, color = MaterialTheme.colorScheme.onBackground.copy(alpha = .42f), fontSize = 13.sp)
 }
 
+/**
+ * 让「当前打开的那张卡片」退出 —— 这是 sharedElement 能配对的硬前提。
+ * 其余卡片恒可见（首次组合不播动画），只有被点开的那张有 exit，
+ * 封面才会从卡片位置连续地 morph 到详情 hero（官方 AnimatedVisibility 范式）。
+ */
 @Composable
-private fun CollectionRow(values: List<DiscoveryCollection>, onSelect: (DiscoveryCollection) -> Unit) {
+private fun DiscoveryCardVisibility(
+    collection: DiscoveryCollection,
+    slot: String,
+    selectedCollectionKey: String?,
+    modifier: Modifier = Modifier,
+    content: @Composable AnimatedVisibilityScope.() -> Unit,
+) {
+    AnimatedVisibility(
+        visible = "$slot:${collection.key}" != selectedCollectionKey,
+        enter = fadeIn() + scaleIn(),
+        exit = fadeOut() + scaleOut(),
+        modifier = modifier,
+        label = "discovery-card-${collection.key}",
+        content = content,
+    )
+}
+
+@Composable
+private fun CollectionRow(
+    values: List<DiscoveryCollection>,
+    slot: String,
+    onSelect: (DiscoveryCollection, String) -> Unit,
+    selectedCollectionKey: String? = null,
+    sharedTransitionScope: SharedTransitionScope? = null,
+) {
     LazyRow(
         contentPadding = PaddingValues(horizontal = 20.dp),
         horizontalArrangement = Arrangement.spacedBy(14.dp),
     ) {
         itemsIndexed(values, key = { _, value -> value.key }) { index, collection ->
-            CollectionCard(collection, Modifier.width(if (index == 0) 246.dp else 174.dp)) { onSelect(collection) }
+            DiscoveryCardVisibility(
+                collection = collection,
+                slot = "$slot-$index",
+                selectedCollectionKey = selectedCollectionKey,
+            ) {
+                CollectionCard(
+                    value = collection,
+                    modifier = Modifier.width(if (index == 0) 246.dp else 174.dp),
+                    onClick = { onSelect(collection, "$slot-$index") },
+                    sharedTransitionScope = sharedTransitionScope,
+                    animatedVisibilityScope = this,
+                    artworkSlot = "$slot-$index",
+                )
+            }
         }
     }
 }
@@ -1051,7 +1242,13 @@ private fun ThreeLineSongCarousel(values: List<DiscoveryTrack>, onSelect: (Disco
 }
 
 @Composable
-private fun CollectionGrid(values: List<DiscoveryCollection>, onSelect: (DiscoveryCollection) -> Unit) {
+private fun CollectionGrid(
+    values: List<DiscoveryCollection>,
+    slot: String,
+    onSelect: (DiscoveryCollection, String) -> Unit,
+    selectedCollectionKey: String? = null,
+    sharedTransitionScope: SharedTransitionScope? = null,
+) {
     val window = rememberMeloXWindowInfo()
     LazyVerticalGrid(
         columns = GridCells.Fixed(window.gridColumns),
@@ -1061,17 +1258,48 @@ private fun CollectionGrid(values: List<DiscoveryCollection>, onSelect: (Discove
     ) {
         values.firstOrNull()?.let { hero ->
             item(key = "hero-${hero.key}", span = { androidx.compose.foundation.lazy.grid.GridItemSpan(maxLineSpan) }) {
-                HeroCollectionCard(hero) { onSelect(hero) }
+                DiscoveryCardVisibility(
+                    collection = hero,
+                    slot = "$slot-hero",
+                    selectedCollectionKey = selectedCollectionKey,
+                ) {
+                    HeroCollectionCard(
+                        value = hero,
+                        onClick = { onSelect(hero, "$slot-hero") },
+                        sharedTransitionScope = sharedTransitionScope,
+                        animatedVisibilityScope = this,
+                        artworkSlot = "$slot-hero",
+                    )
+                }
             }
         }
         items(values.drop(1), key = DiscoveryCollection::key) { collection ->
-            CollectionCard(collection, Modifier.fillMaxWidth()) { onSelect(collection) }
+            DiscoveryCardVisibility(
+                collection = collection,
+                slot = "$slot-${collection.key}",
+                selectedCollectionKey = selectedCollectionKey,
+            ) {
+                CollectionCard(
+                    value = collection,
+                    modifier = Modifier.fillMaxWidth(),
+                    onClick = { onSelect(collection, "$slot-${collection.key}") },
+                    sharedTransitionScope = sharedTransitionScope,
+                    animatedVisibilityScope = this,
+                    artworkSlot = "$slot-${collection.key}",
+                )
+            }
         }
     }
 }
 
 @Composable
-private fun HeroCollectionCard(value: DiscoveryCollection, onClick: () -> Unit) {
+private fun HeroCollectionCard(
+    value: DiscoveryCollection,
+    onClick: () -> Unit,
+    sharedTransitionScope: SharedTransitionScope? = null,
+    animatedVisibilityScope: AnimatedVisibilityScope? = null,
+    artworkSlot: String = "hero",
+) {
     Box(
         Modifier
             .fillMaxWidth()
@@ -1079,7 +1307,18 @@ private fun HeroCollectionCard(value: DiscoveryCollection, onClick: () -> Unit) 
             .clip(MeloXShapes.largeCard)
             .clickable(onClick = onClick),
     ) {
-        AsyncImage(value.artworkUrl, null, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize())
+        AsyncImage(
+            value.artworkUrl,
+            null,
+            contentScale = ContentScale.Crop,
+            modifier = Modifier
+                .meloXDiscoverySharedArtwork(
+                    sharedTransitionScope = sharedTransitionScope,
+                    animatedVisibilityScope = animatedVisibilityScope,
+                    key = discoveryCollectionArtworkSharedKey(value, artworkSlot),
+                )
+                .fillMaxSize(),
+        )
         Box(Modifier.fillMaxSize().background(Brush.verticalGradient(listOf(Color.Transparent, Color.Black.copy(alpha = .82f)))))
         Column(Modifier.align(Alignment.BottomStart).padding(20.dp)) {
             Text(stringResource(R.string.home_featured_this_week), color = Color.White.copy(alpha = .72f), fontSize = 12.sp, fontWeight = FontWeight.Bold)
@@ -1090,7 +1329,14 @@ private fun HeroCollectionCard(value: DiscoveryCollection, onClick: () -> Unit) 
 }
 
 @Composable
-private fun CollectionCard(value: DiscoveryCollection, modifier: Modifier, onClick: () -> Unit) {
+private fun CollectionCard(
+    value: DiscoveryCollection,
+    modifier: Modifier,
+    onClick: () -> Unit,
+    sharedTransitionScope: SharedTransitionScope? = null,
+    animatedVisibilityScope: AnimatedVisibilityScope? = null,
+    artworkSlot: String = "card",
+) {
     Column(
         modifier
             .clickable(onClick = onClick)
@@ -1102,6 +1348,11 @@ private fun CollectionCard(value: DiscoveryCollection, modifier: Modifier, onCli
         // and the title appears detached from its card on slower networks.
         Box(
             modifier = Modifier
+                .meloXDiscoverySharedArtwork(
+                    sharedTransitionScope = sharedTransitionScope,
+                    animatedVisibilityScope = animatedVisibilityScope,
+                    key = discoveryCollectionArtworkSharedKey(value, artworkSlot),
+                )
                 .fillMaxWidth()
                 .height(174.dp)
                 .clip(artworkShape),
@@ -1126,6 +1377,35 @@ private fun CollectionCard(value: DiscoveryCollection, modifier: Modifier, onCli
             val countContext = LocalContext.current
             Text(stringResource(R.string.home_play_count, compactCount(countContext, value.playCount)), color = MaterialTheme.colorScheme.onBackground.copy(alpha = .42f), fontSize = 11.sp)
         }
+    }
+}
+
+private fun discoveryCollectionArtworkSharedKey(collection: DiscoveryCollection, slot: String): String =
+    "discovery-collection-artwork-$slot-${collection.key}"
+
+/**
+ * 把列表卡片封面挂到宿主顶层的 SharedTransitionLayout 上，使首页/发现页
+ * 打开歌单时封面能从卡片位置一镜到底地 morph 到详情 hero。
+ * key 带 [DiscoveryCollection.key] 前缀：同一个首页里不同 block 可能含
+ * 同一歌单，裸 id 会在同一作用域内撞 key。
+ * scope 为空（尚未接入共享元素的宿主）时原样返回，不影响常规渲染。
+ */
+@Composable
+@OptIn(ExperimentalSharedTransitionApi::class)
+private fun Modifier.meloXDiscoverySharedArtwork(
+    sharedTransitionScope: SharedTransitionScope?,
+    animatedVisibilityScope: AnimatedVisibilityScope?,
+    key: String,
+): Modifier {
+    if (sharedTransitionScope == null || animatedVisibilityScope == null) return this
+    return with(sharedTransitionScope) {
+        this@meloXDiscoverySharedArtwork.sharedElement(
+            sharedContentState = rememberSharedContentState(key = key),
+            animatedVisibilityScope = animatedVisibilityScope,
+            // 过渡期间封面留在共享 overlay 层，避免被列表/详情的裁剪吃掉。
+            renderInOverlayDuringTransition = true,
+            zIndexInOverlay = 1f,
+        )
     }
 }
 
@@ -1165,14 +1445,31 @@ private fun SongRow(song: DiscoveryTrack, onClick: () -> Unit) {
 private fun DiscoveryCollectionDetail(
     collection: DiscoveryCollection,
     onBack: () -> Unit,
+    // 由首页/发现页 host 透传：与列表卡片处于同一 SharedTransitionLayout
+    // 作用域、并用同一个 key，才能把封面一镜到底地 morph 到详情 hero。
+    sharedTransitionScope: SharedTransitionScope? = null,
+    animatedVisibilityScope: AnimatedVisibilityScope? = null,
+    artworkSharedKey: String? = null,
 ) {
     when (collection) {
         is DiscoveryCollection.Netease -> {
-            MeloXUnifiedPlaylistDetailScreen(collection.playlist, onBack)
+            MeloXUnifiedPlaylistDetailScreen(
+                playlist = collection.playlist,
+                onBack = onBack,
+                sharedTransitionScope = sharedTransitionScope,
+                animatedVisibilityScope = animatedVisibilityScope,
+                artworkSharedKey = artworkSharedKey,
+            )
             return
         }
         is DiscoveryCollection.ProviderPlaylist -> {
-            MeloXUnifiedPlaylistDetailScreen(MeloXLegacyUiBridge.playlist(collection.playlist), onBack)
+            MeloXUnifiedPlaylistDetailScreen(
+                playlist = MeloXLegacyUiBridge.playlist(collection.playlist),
+                onBack = onBack,
+                sharedTransitionScope = sharedTransitionScope,
+                animatedVisibilityScope = animatedVisibilityScope,
+                artworkSharedKey = artworkSharedKey,
+            )
             return
         }
         is DiscoveryCollection.ProviderRanking -> Unit
