@@ -1,6 +1,5 @@
 package com.lladlam.melox.ui.account
 
-import android.content.Intent
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
@@ -14,10 +13,10 @@ import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
@@ -36,7 +35,7 @@ import com.lladlam.melox.ui.glass.MeloXGlassButtonStyle
 import com.lladlam.melox.ui.glass.MeloXGlassTextField
 import com.lladlam.melox.ui.glass.MeloXSystemColors
 import com.lladlam.melox.ui.legal.MeloXLegalLinks
-import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 
 @Composable
 fun SpotifyLoginScreen(onDismiss: () -> Unit, onLoggedIn: () -> Unit) {
@@ -59,21 +58,14 @@ fun SpotifyLoginScreen(onDismiss: () -> Unit, onLoggedIn: () -> Unit) {
         }
         return
     }
-    var error by remember { mutableStateOf(SpotifySessionStore.consumeOAuthError(context)) }
+    var error by remember { mutableStateOf<String?>(null) }
+    var authorizing by remember { mutableStateOf(false) }
     var clientIdInput by remember { mutableStateOf(SpotifyClientConfig.read(context)) }
     var configured by remember { mutableStateOf(SpotifyClientConfig.isConfigured(context)) }
+    val scope = rememberCoroutineScope()
+    val doneMessage = stringResource(R.string.account_spotify_return)
 
     BackHandler(onBack = onDismiss)
-    LaunchedEffect(Unit) {
-        while (true) {
-            SpotifySessionStore.consumeOAuthError(context)?.let { error = it }
-            if (SpotifySessionStore.read(context).isLoggedIn) {
-                onLoggedIn()
-                return@LaunchedEffect
-            }
-            delay(400)
-        }
-    }
 
     Column(
         Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)
@@ -121,16 +113,26 @@ fun SpotifyLoginScreen(onDismiss: () -> Unit, onLoggedIn: () -> Unit) {
         error?.let { Text(it, color = MaterialTheme.colorScheme.error, fontSize = 13.sp) }
         MeloXGlassButton(
             onClick = {
-                runCatching {
-                    val uri = SpotifyOAuth(context, SpotifyClientConfig.effective(context), MeloXHttpClient.shared)
-                        .authorizationUri()
-                    context.startActivity(Intent(Intent.ACTION_VIEW, uri).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
-                }.onFailure { error = it.message ?: activityContext.getString(R.string.account_spotify_auth_failed) }
+                if (authorizing) return@MeloXGlassButton
+                authorizing = true
+                error = null
+                scope.launch {
+                    runCatching {
+                        SpotifyOAuth(context, SpotifyClientConfig.effective(context), MeloXHttpClient.shared)
+                            .authorize(doneMessage)
+                    }.onSuccess {
+                        authorizing = false
+                        onLoggedIn()
+                    }.onFailure {
+                        authorizing = false
+                        error = it.message ?: activityContext.getString(R.string.account_spotify_auth_failed)
+                    }
+                }
             },
             modifier = Modifier.fillMaxWidth(),
-            enabled = configured,
+            enabled = configured && !authorizing,
             style = MeloXGlassButtonStyle.BorderedProminent,
-        ) { Text(stringResource(R.string.account_spotify_browser)) }
+        ) { Text(stringResource(if (authorizing) R.string.account_spotify_waiting else R.string.account_spotify_browser)) }
         Spacer(Modifier.weight(1f))
         MeloXLegalLinks(tint = androidx.compose.ui.graphics.Color(0xFF1DB954))
     }

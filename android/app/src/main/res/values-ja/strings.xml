@@ -247,6 +247,9 @@
     <string name="account_save_client_id">Client ID を保存</string>
     <string name="account_spotify_auth_failed">Spotify の認証を開始できませんでした</string>
     <string name="account_spotify_browser">ブラウザで Spotify にサインイン</string>
+    <string name="account_spotify_waiting">Spotify を待っています…</string>
+    <string name="account_spotify_return">MeloX に戻れます</string>
+    <string name="provider_jellyfin_insecure">このサーバーの平文接続と独自の証明書を許可する</string>
     <string name="account_login_bilibili">Bilibili にサインイン</string>
     <string name="account_profile_title">プロフィール</string>
     <string name="account_retry">再試行</string>

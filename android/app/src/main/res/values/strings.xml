@@ -247,6 +247,9 @@
     <string name="account_save_client_id">Save Client ID</string>
     <string name="account_spotify_auth_failed">Couldn\'t start Spotify authorization</string>
     <string name="account_spotify_browser">Sign in to Spotify in the browser</string>
+    <string name="account_spotify_waiting">Waiting for Spotify…</string>
+    <string name="account_spotify_return">You can return to MeloX</string>
+    <string name="provider_jellyfin_insecure">Allow this server\'s plain HTTP connection and its own certificate</string>
     <string name="account_login_bilibili">Sign in to Bilibili</string>
     <string name="account_profile_title">Profile</string>
     <string name="account_retry">Retry</string>

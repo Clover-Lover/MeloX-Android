@@ -247,6 +247,9 @@
     <string name="account_save_client_id">儲存 Client ID</string>
     <string name="account_spotify_auth_failed">無法啟動 Spotify 授權</string>
     <string name="account_spotify_browser">在瀏覽器中登入 Spotify</string>
+    <string name="account_spotify_waiting">正在等待 Spotify…</string>
+    <string name="account_spotify_return">可以返回 MeloX</string>
+    <string name="provider_jellyfin_insecure">允許這台伺服器使用明文連線和它自己的憑證</string>
     <string name="account_login_bilibili">登入 Bilibili</string>
     <string name="account_profile_title">個人中心</string>
     <string name="account_retry">重試</string>

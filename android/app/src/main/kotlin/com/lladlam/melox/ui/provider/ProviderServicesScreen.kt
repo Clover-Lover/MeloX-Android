@@ -121,6 +121,7 @@ fun ProviderServicesScreen(
     var jellyfinPassword by remember { mutableStateOf("") }
     var jellyfinError by remember { mutableStateOf<String?>(null) }
     var jellyfinBusy by remember { mutableStateOf(false) }
+    var jellyfinTrustServer by remember { mutableStateOf(false) }
     val localRepository = remember(context) { LocalMusicRepository(context) }
     var localTrackCount by remember { mutableStateOf(localRepository.tracks().size) }
     var localScanBusy by remember { mutableStateOf(false) }
@@ -633,6 +634,19 @@ fun ProviderServicesScreen(
             MeloXGlassTextField(jellyfinServerUrl, { jellyfinServerUrl = it }, Modifier.fillMaxWidth().padding(top = 12.dp), placeholder = { Text("https://music.example.com") }, singleLine = true)
             MeloXGlassTextField(jellyfinUsername, { jellyfinUsername = it }, Modifier.fillMaxWidth().padding(top = 10.dp), placeholder = { Text(stringResource(R.string.provider_username)) }, singleLine = true)
             MeloXGlassTextField(jellyfinPassword, { jellyfinPassword = it }, Modifier.fillMaxWidth().padding(top = 10.dp), placeholder = { Text(stringResource(R.string.provider_password)) }, singleLine = true)
+            Row(
+                Modifier.fillMaxWidth().padding(top = 10.dp).clickable { jellyfinTrustServer = !jellyfinTrustServer },
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                MeloXGlassToggle(checked = jellyfinTrustServer, onCheckedChange = { jellyfinTrustServer = it })
+                Text(
+                    stringResource(R.string.provider_jellyfin_insecure),
+                    modifier = Modifier.padding(start = 10.dp).weight(1f),
+                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = .72f),
+                    fontSize = 13.sp,
+                    lineHeight = 18.sp,
+                )
+            }
             jellyfinError?.let { Text(it, Modifier.padding(top = 7.dp), color = MaterialTheme.colorScheme.error, fontSize = 12.sp) }
             Row(Modifier.fillMaxWidth().padding(top = 14.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                 MeloXGlassButton(onClick = { JellyfinSessionStore.clear(context); showJellyfinDialog = false }, modifier = Modifier.weight(1f), style = MeloXGlassButtonStyle.Plain) { Text(stringResource(R.string.provider_logout)) }
@@ -643,7 +657,10 @@ fun ProviderServicesScreen(
                             runCatching {
                                 require(jellyfinServerUrl.trim().startsWith("http://") || jellyfinServerUrl.trim().startsWith("https://")) { context.getString(R.string.provider_invalid_server) }
                                 require(jellyfinUsername.isNotBlank()) { context.getString(R.string.provider_username_required) }
-                                JellyfinApiClient(com.lladlam.melox.core.network.MeloXHttpClient.shared).authenticate(jellyfinServerUrl.trim(), jellyfinUsername.trim(), jellyfinPassword).also { JellyfinSessionStore.write(context, it) }
+                                JellyfinApiClient(
+                                    com.lladlam.melox.core.network.MeloXHttpClient.shared,
+                                    trustUserServer = jellyfinTrustServer,
+                                ).authenticate(jellyfinServerUrl.trim(), jellyfinUsername.trim(), jellyfinPassword).also { JellyfinSessionStore.write(context, it) }
                             }.onSuccess { jellyfinPassword = ""; jellyfinBusy = false; loginRevision++; showJellyfinDialog = false }
                                 .onFailure { jellyfinBusy = false; jellyfinError = it.message ?: context.getString(R.string.provider_jellyfin_failed) }
                         }

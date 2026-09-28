@@ -1,8 +1,12 @@
 package com.lladlam.melox.core.provider.spotify
 
 import android.content.Context
+import android.content.Intent
 import android.net.Uri
 import java.io.IOException
+import java.net.InetAddress
+import java.net.ServerSocket
+import java.net.SocketTimeoutException
 import java.security.MessageDigest
 import java.security.SecureRandom
 import java.util.Base64
@@ -55,60 +59,53 @@ class SpotifyOAuth(
     private val clientId: String,
     private val httpClient: OkHttpClient,
 ) {
-    fun authorizationUri(): Uri {
+    /**
+     * Opens the system browser and waits for Spotify to redirect to the loopback
+     * listener. The keymaster client only accepts `http://127.0.0.1:5588/login`,
+     * so a custom scheme is rejected and never returns a usable code.
+     */
+    suspend fun authorize(doneMessage: String): SpotifySession = withContext(Dispatchers.IO) {
         require(clientId.isNotBlank()) { "未配置 Spotify Client ID；请设置 Gradle property meloxSpotifyClientId" }
         val transaction = SpotifyAuthorizationTransaction(
             state = SpotifyOAuthLogic.randomUrlSafe(24),
             codeVerifier = SpotifyOAuthLogic.randomUrlSafe(64),
             createdAtEpochMs = System.currentTimeMillis(),
         )
-        SpotifySessionStore.saveTransaction(context, transaction)
-        return Uri.parse(AuthorizeEndpoint).buildUpon()
-            .appendQueryParameter("client_id", clientId)
-            .appendQueryParameter("response_type", "code")
-            .appendQueryParameter("redirect_uri", RedirectUri)
-            .appendQueryParameter("code_challenge_method", "S256")
-            .appendQueryParameter("code_challenge", SpotifyOAuthLogic.codeChallenge(transaction.codeVerifier))
-            .appendQueryParameter("state", transaction.state)
-            .appendQueryParameter("scope", Scopes.joinToString(" "))
-            .build()
-    }
-
-    suspend fun handleCallback(uri: Uri): SpotifySession = withContext(Dispatchers.IO) {
-        require(clientId.isNotBlank()) { "Spotify Client ID 未配置" }
-        if (uri.scheme != RedirectScheme || uri.host != RedirectHost ||
-            uri.port != -1 || uri.path.orEmpty().isNotEmpty() || uri.userInfo != null
-        ) {
-            throw IOException("无效的 Spotify 登录回调")
-        }
-        val transaction = SpotifySessionStore.transaction(context)
-            ?: throw IOException("Spotify 登录事务不存在或已失效，请重新登录")
-        if (!SpotifyOAuthLogic.transactionIsFresh(
-                transaction.createdAtEpochMs,
-                System.currentTimeMillis(),
-                TransactionTtlMs,
-            )
-        ) {
-            SpotifySessionStore.clearTransaction(context)
-            throw IOException("Spotify 登录已超时，请重新登录")
-        }
-        if (!SpotifyOAuthLogic.stateMatches(transaction.state, uri.getQueryParameter("state"))) {
-            SpotifySessionStore.clearTransaction(context)
-            throw IOException("Spotify OAuth state 校验失败")
-        }
-        uri.getQueryParameter("error")?.takeIf(String::isNotBlank)?.let {
-            SpotifySessionStore.clearTransaction(context)
-            throw IOException("Spotify 授权失败: $it")
-        }
-        try {
-            val code = uri.getQueryParameter("code")?.takeIf(String::isNotBlank)
+        SpotifyLoopbackReceiver(RedirectPort, doneMessage).use { receiver ->
+            val redirectUri = receiver.redirectUri
+            val authUri = Uri.parse(AuthorizeEndpoint).buildUpon()
+                .appendQueryParameter("client_id", clientId)
+                .appendQueryParameter("response_type", "code")
+                .appendQueryParameter("redirect_uri", redirectUri)
+                .appendQueryParameter("code_challenge_method", "S256")
+                .appendQueryParameter("code_challenge", SpotifyOAuthLogic.codeChallenge(transaction.codeVerifier))
+                .appendQueryParameter("state", transaction.state)
+                .appendQueryParameter("scope", Scopes.joinToString(" "))
+                .build()
+            withContext(Dispatchers.Main) {
+                context.startActivity(
+                    Intent(Intent.ACTION_VIEW, authUri).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
+                )
+            }
+            val callback = try {
+                receiver.awaitRedirect()
+            } catch (_: SocketTimeoutException) {
+                throw IOException("Spotify 登录已超时，请重新登录")
+            }
+            if (!SpotifyOAuthLogic.stateMatches(transaction.state, callback.state)) {
+                throw IOException("Spotify OAuth state 校验失败")
+            }
+            callback.error?.takeIf(String::isNotBlank)?.let {
+                throw IOException("Spotify 授权失败: $it")
+            }
+            val code = callback.code?.takeIf(String::isNotBlank)
                 ?: throw IOException("Spotify 授权回调缺少 code")
             val token = requestToken(
                 FormBody.Builder()
                     .add("client_id", clientId)
                     .add("grant_type", "authorization_code")
                     .add("code", code)
-                    .add("redirect_uri", RedirectUri)
+                    .add("redirect_uri", redirectUri)
                     .add("code_verifier", transaction.codeVerifier)
                     .build(),
             )
@@ -117,8 +114,6 @@ class SpotifyOAuth(
                 refreshToken = token.refreshToken.orEmpty(),
                 expiresAtEpochMs = System.currentTimeMillis() + TimeUnit.SECONDS.toMillis(token.expiresInSeconds),
             ).also { SpotifySessionStore.write(context, it) }
-        } finally {
-            SpotifySessionStore.clearTransaction(context)
         }
     }
 
@@ -152,19 +147,81 @@ class SpotifyOAuth(
     }
 
     companion object {
-        const val RedirectUri = "com.lladlam.melox.android://spotify-callback"
-        const val RedirectScheme = "com.lladlam.melox.android"
-        const val RedirectHost = "spotify-callback"
+        /** Port registered for librespot's keymaster client. Spotify matches it literally. */
+        const val RedirectPort = 5588
+        const val RedirectUri = "http://127.0.0.1:$RedirectPort/login"
         const val AuthorizeEndpoint = "https://accounts.spotify.com/authorize"
         const val TokenEndpoint = "https://accounts.spotify.com/api/token"
-        private const val TransactionTtlMs = 10 * 60 * 1_000L
         val Scopes = listOf(
-            "user-read-private",
-            "playlist-read-private",
-            "playlist-read-collaborative",
+            "app-remote-control",
+            "playlist-modify",
             "playlist-modify-private",
             "playlist-modify-public",
+            "playlist-read",
+            "playlist-read-collaborative",
+            "playlist-read-private",
+            "streaming",
+            "user-follow-modify",
+            "user-follow-read",
             "user-library-modify",
+            "user-library-read",
+            "user-read-currently-playing",
+            "user-read-email",
+            "user-read-playback-state",
+            "user-read-private",
+            "user-read-recently-played",
         )
+    }
+}
+
+/**
+ * One-shot listener for Spotify's loopback redirect.
+ * Bound to IPv4 explicitly: Android's default loopback is `::1`, and a browser
+ * following `http://127.0.0.1` would then get connection refused.
+ */
+private class SpotifyLoopbackReceiver(
+    port: Int,
+    doneMessage: String,
+) : AutoCloseable {
+    data class Callback(val code: String?, val state: String?, val error: String?)
+
+    private val server = ServerSocket(port, 1, InetAddress.getByName("127.0.0.1")).apply {
+        soTimeout = RedirectTimeoutMs
+    }
+    val redirectUri: String = "http://${server.inetAddress.hostAddress}:${server.localPort}/login"
+    private val response: String = buildString {
+        val page = "<html><body><h2>$doneMessage</h2></body></html>"
+        append("HTTP/1.1 200 OK\r\n")
+        append("Content-Type: text/html; charset=utf-8\r\n")
+        append("Content-Length: ${page.toByteArray(Charsets.UTF_8).size}\r\n")
+        append("Connection: close\r\n\r\n")
+        append(page)
+    }
+
+    fun awaitRedirect(): Callback {
+        server.accept().use { socket ->
+            val requestLine = socket.getInputStream().bufferedReader().readLine()
+                ?: throw IOException("Spotify 授权回调为空")
+            val target = requestLine.split(' ').getOrNull(1)
+                ?: throw IOException("Spotify 授权回调无效")
+            val uri = Uri.parse("http://127.0.0.1$target")
+            socket.getOutputStream().writer().apply {
+                write(response)
+                flush()
+            }
+            return Callback(
+                code = uri.getQueryParameter("code"),
+                state = uri.getQueryParameter("state"),
+                error = uri.getQueryParameter("error"),
+            )
+        }
+    }
+
+    override fun close() {
+        runCatching { server.close() }
+    }
+
+    private companion object {
+        const val RedirectTimeoutMs = 5 * 60 * 1000
     }
 }
