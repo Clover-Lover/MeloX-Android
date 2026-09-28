@@ -16,22 +16,28 @@ import com.lladlam.melox.core.music.model.MusicHomeFeed
 import com.lladlam.melox.core.music.model.MusicPage
 import com.lladlam.melox.core.music.model.MusicPlaylistDetail
 import com.lladlam.melox.core.music.model.MusicPlaylistSummary
+import com.lladlam.melox.core.music.model.MusicRankingSummary
 import com.lladlam.melox.core.music.model.MusicResourceId
 import com.lladlam.melox.core.music.model.MusicSource
 import com.lladlam.melox.core.music.model.MusicTrack
 import com.lladlam.melox.core.music.model.PlaybackResolution
+import com.lladlam.melox.core.music.model.ProviderTrackMetadata
 import com.lladlam.melox.core.music.model.TrackAvailability
 import com.lladlam.melox.core.music.provider.AlbumCapability
 import com.lladlam.melox.core.music.provider.ArtistCapability
 import com.lladlam.melox.core.music.provider.CatalogSearchCapability
 import com.lladlam.melox.core.music.provider.DownloadCapability
+import com.lladlam.melox.core.music.provider.FavoriteCapability
 import com.lladlam.melox.core.music.provider.HomeFeedCapability
+import com.lladlam.melox.core.music.provider.LibraryCollectionCapability
 import com.lladlam.melox.core.music.provider.LyricsCapability
 import com.lladlam.melox.core.music.provider.MusicCapability
 import com.lladlam.melox.core.music.provider.MusicProvider
 import com.lladlam.melox.core.music.provider.PlaybackCapability
 import com.lladlam.melox.core.music.provider.PlaylistCapability
+import com.lladlam.melox.core.music.provider.PlaylistSyncCapability
 import com.lladlam.melox.core.music.provider.PlaylistWriteCapability
+import com.lladlam.melox.core.music.provider.RankingCapability
 import com.lladlam.melox.core.music.provider.SearchCapability
 import com.lladlam.melox.core.music.provider.UserLibraryCapability
 import com.metrolist.innertube.YouTube
@@ -42,6 +48,7 @@ import com.metrolist.innertube.models.PlaylistItem
 import com.metrolist.innertube.models.SongItem
 import com.metrolist.innertube.models.YouTubeClient
 import com.metrolist.innertube.models.YTItem
+import com.metrolist.innertube.pages.ChartsPage
 import com.metrolist.innertube.pages.HomePage
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -61,8 +68,9 @@ class YouTubeMusicProvider(
     context: Context,
     private val httpClient: okhttp3.OkHttpClient = com.lladlam.melox.core.network.MeloXHttpClient.shared,
 ) : MusicProvider, SearchCapability, CatalogSearchCapability, PlaybackCapability,
-    DownloadCapability, UserLibraryCapability, PlaylistCapability, PlaylistWriteCapability,
-    AlbumCapability, ArtistCapability, HomeFeedCapability, LyricsCapability {
+    DownloadCapability, FavoriteCapability, UserLibraryCapability, PlaylistCapability, PlaylistWriteCapability,
+    AlbumCapability, ArtistCapability, HomeFeedCapability, LyricsCapability, RankingCapability,
+    LibraryCollectionCapability, PlaylistSyncCapability {
     private val appContext = context.applicationContext
     private val session: YouTubeSession
         get() = YouTubeSessionStore.read(appContext)
@@ -78,6 +86,8 @@ class YouTubeMusicProvider(
         MusicCapability.Playback,
         MusicCapability.Lyrics,
         MusicCapability.Library,
+        MusicCapability.Favorites,
+        MusicCapability.Rankings,
         MusicCapability.Playlists,
         MusicCapability.Albums,
         MusicCapability.Artists,
@@ -129,11 +139,85 @@ class YouTubeMusicProvider(
     override suspend fun writablePlaylists(page: Int, pageSize: Int): MusicPage<MusicPlaylistSummary> =
         userPlaylists(page, pageSize)
 
+    override suspend fun setFavorite(track: MusicTrack, favorite: Boolean) {
+        require(track.id.source == source)
+        check(session.isLoggedIn) { "YouTube Music 需要登录后才能收藏" }
+        YouTubeSessionStore.apply(appContext)
+        YouTube.likeVideo(track.id.value, favorite).getOrThrow()
+    }
+
     override suspend fun addTrackToPlaylist(track: MusicTrack, playlist: MusicPlaylistSummary) {
         require(track.id.source == source && playlist.id.source == source)
         check(session.isLoggedIn) { "YouTube Music 需要登录后才能修改歌单" }
         YouTubeSessionStore.apply(appContext)
         YouTube.addToPlaylist(playlist.id.value, track.id.value).getOrThrow()
+    }
+
+    override suspend fun savedAlbums(page: Int, pageSize: Int): MusicPage<MusicAlbumSummary> =
+        libraryPage(page, pageSize, SAVED_ALBUMS_BROWSE_ID) { (it as? AlbumItem)?.toAlbumSummary() }
+
+    override suspend fun followedArtists(page: Int, pageSize: Int): MusicPage<MusicArtistSummary> =
+        libraryPage(page, pageSize, FOLLOWED_ARTISTS_BROWSE_ID) { (it as? ArtistItem)?.toArtistSummary() }
+
+    override suspend fun createPlaylist(name: String): MusicPlaylistSummary = withContext(Dispatchers.IO) {
+        check(session.isLoggedIn) { "YouTube Music 需要登录后才能新建歌单" }
+        YouTubeSessionStore.apply(appContext)
+        val id = YouTube.createPlaylist(name.ifBlank { "New playlist" })
+        MusicPlaylistSummary(MusicResourceId(source, id), name.ifBlank { "New playlist" })
+    }
+
+    override suspend fun renamePlaylist(playlist: MusicPlaylistSummary, name: String) {
+        require(playlist.id.source == source)
+        check(session.isLoggedIn) { "YouTube Music 需要登录后才能修改歌单" }
+        YouTubeSessionStore.apply(appContext)
+        YouTube.renamePlaylist(playlist.id.value, name).getOrThrow()
+    }
+
+    override suspend fun removeTrackFromPlaylist(track: MusicTrack, playlist: MusicPlaylistSummary) {
+        require(track.id.source == source && playlist.id.source == source)
+        val membership = track.providerMetadata as? ProviderTrackMetadata.YouTube
+        val setVideoId = membership?.setVideoId
+            ?: error("这首歌没有 YouTube 歌单成员标识，无法从歌单移除")
+        check(session.isLoggedIn) { "YouTube Music 需要登录后才能修改歌单" }
+        YouTubeSessionStore.apply(appContext)
+        YouTube.removeFromPlaylist(playlist.id.value, track.id.value, setVideoId).getOrThrow()
+    }
+
+    override suspend fun reorderPlaylistTrack(playlist: MusicPlaylistSummary, track: MusicTrack, newIndex: Int) {
+        require(track.id.source == source && playlist.id.source == source)
+        val membership = track.providerMetadata as? ProviderTrackMetadata.YouTube
+        val setVideoId = membership?.setVideoId
+            ?: error("这首歌没有 YouTube 歌单成员标识，无法调整顺序")
+        check(session.isLoggedIn) { "YouTube Music 需要登录后才能修改歌单" }
+        YouTubeSessionStore.apply(appContext)
+        val songs = YouTube.playlist(playlist.id.value).getOrThrow().songs
+        val without = songs.filterNot { it.id == track.id.value }
+        val successor = without.getOrNull(newIndex.coerceIn(0, without.size))
+        YouTube.moveSongPlaylist(playlist.id.value, setVideoId, successor?.setVideoId).getOrThrow()
+    }
+
+    override val canDeletePlaylists = true
+
+    override suspend fun deletePlaylist(playlist: MusicPlaylistSummary) {
+        require(playlist.id.source == source)
+        if (playlist.id.value == LIKED_SONGS_PLAYLIST_ID) error("喜欢的歌曲不能删除")
+        check(session.isLoggedIn) { "YouTube Music 需要登录后才能删除歌单" }
+        YouTubeSessionStore.apply(appContext)
+        YouTube.deletePlaylist(playlist.id.value).getOrThrow()
+    }
+
+    override suspend fun rankingTracks(
+        ranking: MusicRankingSummary,
+        page: Int,
+        pageSize: Int,
+    ): MusicPage<MusicTrack> = withContext(Dispatchers.IO) {
+        require(ranking.id.source == source)
+        val section = chartSections().firstOrNull { it.title == ranking.id.value }
+            ?: error("这个榜单已经不在 YouTube Music 的排行里")
+        val tracks = section.items.filterIsInstance<SongItem>().map { it.toMusicTrack() }
+        val size = pageSize.coerceAtLeast(1)
+        val offset = (page.coerceAtLeast(1) - 1) * size
+        MusicPage(tracks.drop(offset).take(size), page, size, tracks.size.toLong(), false)
     }
 
     override suspend fun playlistDetail(
@@ -173,9 +257,8 @@ class YouTubeMusicProvider(
     /**
      * YouTube Music's own home, folded into the three shelves the home screen draws.
      *
-     * Playlists and albums become the collection row, songs become the track row.
-     * Charts stay out: the home screen only draws a ranking when the provider also
-     * implements [com.lladlam.melox.core.music.provider.RankingCapability], which this one does not.
+     * Playlists and albums become the collection row, songs become the track row,
+     * and the charts page becomes the ranking row.
      */
     override suspend fun homeFeed(
         playlistLimit: Int,
@@ -187,10 +270,27 @@ class YouTubeMusicProvider(
         val playlists = mutableListOf<MusicPlaylistSummary>()
         val songs = mutableListOf<MusicTrack>()
         sections.forEach { section -> section.collect(playlists, songs) }
+        val rankings = runCatching { chartSections() }.getOrDefault(emptyList())
+            .filter { section -> section.items.any { it is SongItem } }
+            .map { section ->
+                val preview = section.items.filterIsInstance<SongItem>().take(3).map { it.toMusicTrack() }
+                MusicRankingSummary(
+                    id = MusicResourceId(source, section.title),
+                    title = section.title,
+                    artworkUrl = preview.firstOrNull()?.artworkUrl,
+                    previewTracks = preview,
+                )
+            }
         MusicHomeFeed(
             recommendedPlaylists = playlists.distinctBy { it.id }.take(playlistLimit.coerceAtLeast(0)),
             newSongs = songs.distinctBy { it.id }.take(newSongLimit.coerceAtLeast(0)),
+            rankings = rankings.take(rankingLimit.coerceAtLeast(0)),
         )
+    }
+
+    private suspend fun chartSections(): List<ChartsPage.ChartSection> {
+        YouTubeSessionStore.apply(appContext)
+        return YouTube.getChartsPage().getOrThrow().sections
     }
 
     override suspend fun lyrics(track: MusicTrack): LyricsDocument {
@@ -227,6 +327,18 @@ class YouTubeMusicProvider(
     override suspend fun resolveDownload(track: MusicTrack, quality: AudioQualityTier): PlaybackResolution =
         resolvePlayback(track, quality)
 
+    private suspend fun <T> libraryPage(
+        page: Int,
+        pageSize: Int,
+        browseId: String,
+        map: (YTItem) -> T?,
+    ): MusicPage<T> = withContext(Dispatchers.IO) {
+        if (page > 1 || !session.isLoggedIn) return@withContext MusicPage(emptyList(), page, pageSize, 0)
+        YouTubeSessionStore.apply(appContext)
+        val items = YouTube.library(browseId).getOrThrow().items.mapNotNull(map).take(pageSize.coerceAtLeast(1))
+        MusicPage(items, page, pageSize, items.size.toLong(), false)
+    }
+
     private suspend fun <T> search(
         query: String,
         page: Int,
@@ -258,6 +370,7 @@ class YouTubeMusicProvider(
         artworkUrl = thumbnail,
         durationMs = duration?.takeIf { it > 0 }?.times(1000L),
         availability = TrackAvailability.Playable,
+        providerMetadata = ProviderTrackMetadata.YouTube(videoId = id, setVideoId = setVideoId),
     )
 
     private fun PlaylistItem.toPlaylistSummary() = MusicPlaylistSummary(
@@ -308,6 +421,8 @@ class YouTubeMusicProvider(
 
     companion object {
         private const val LIKED_PLAYLISTS_BROWSE_ID = "FEmusic_liked_playlists"
+        private const val SAVED_ALBUMS_BROWSE_ID = "FEmusic_liked_albums"
+        private const val FOLLOWED_ARTISTS_BROWSE_ID = "FEmusic_library_corpus_track_artists"
         /** YouTube Music's own liked-songs playlist. `YouTube.playlist` reads it by this id. */
         private const val LIKED_SONGS_PLAYLIST_ID = "LM"
         private const val STREAM_URL_TTL_MS = 90 * 60 * 1_000L

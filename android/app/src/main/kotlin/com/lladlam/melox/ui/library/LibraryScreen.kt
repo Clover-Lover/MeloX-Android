@@ -107,12 +107,17 @@ import com.lladlam.melox.playback.ProviderPlaybackCommands
 import com.lladlam.melox.core.model.SearchSong
 import com.lladlam.melox.core.music.model.MusicAccountSummary
 import com.lladlam.melox.core.music.model.MusicAlbumSummary
+import com.lladlam.melox.core.music.model.MusicArtistSummary
 import com.lladlam.melox.core.music.model.MusicSource
 import com.lladlam.melox.core.music.provider.MeloXLegacyUiBridge
 import com.lladlam.melox.core.music.provider.MeloXMusicProviders
 import com.lladlam.melox.core.music.provider.loadAllPlaylistTracks
 import com.lladlam.melox.core.music.provider.AlbumCapability
+import com.lladlam.melox.core.music.provider.ArtistCapability
+import com.lladlam.melox.core.music.provider.LibraryCollectionCapability
+import com.lladlam.melox.core.music.provider.MusicProvider
 import com.lladlam.melox.core.music.provider.PlaylistCapability
+import com.lladlam.melox.core.music.provider.PlaylistSyncCapability
 import com.lladlam.melox.playback.MeloXPlaybackService
 import com.lladlam.melox.core.music.provider.UserLibraryCapability
 import com.lladlam.melox.core.music.provider.LocalAggregationCapability
@@ -154,6 +159,8 @@ import kotlin.math.roundToInt
 private enum class MeloXLibraryPage(@androidx.annotation.StringRes val titleRes: Int) {
     Songs(R.string.library_page_songs),
     Playlists(R.string.library_page_playlists),
+    Albums(R.string.library_browse_albums),
+    Artists(R.string.library_browse_artists),
     Podcasts(R.string.library_page_podcasts),
     Cloud(R.string.library_page_cloud),
     History(R.string.library_page_history),
@@ -161,14 +168,18 @@ private enum class MeloXLibraryPage(@androidx.annotation.StringRes val titleRes:
 }
 
 /**
- * Presentation capability gate only. Provider-specific differences are kept out
- * of the renderer: unsupported product sections are simply absent while the
- * same MeloX transitions/backgrounds remain active.
+ * Presentation capability gate only. A page is present when the active source
+ * implements the corresponding capability, not because of a source name.
  */
-private fun MeloXLibraryPage.isEnabled(source: MusicSource): Boolean = when {
+private fun MeloXLibraryPage.isEnabled(source: MusicSource, provider: MusicProvider?): Boolean = when {
     source == MusicSource.Bilibili -> this == MeloXLibraryPage.Playlists || this == MeloXLibraryPage.Downloads
     source == MusicSource.Local -> this == MeloXLibraryPage.Songs
-    source != MusicSource.Netease -> this == MeloXLibraryPage.Playlists
+    source != MusicSource.Netease -> when (this) {
+        MeloXLibraryPage.Playlists -> true
+        MeloXLibraryPage.Albums, MeloXLibraryPage.Artists -> provider is LibraryCollectionCapability
+        else -> false
+    }
+    this == MeloXLibraryPage.Albums || this == MeloXLibraryPage.Artists -> false
     this == MeloXLibraryPage.Podcasts -> MeloXSettingsRuntime.podcastsEnabled && MeloXSettingsRuntime.podcastsLibraryPlacement
     this == MeloXLibraryPage.History -> MeloXSettingsRuntime.listeningHistoryEnabled
     this == MeloXLibraryPage.Cloud -> MeloXSettingsRuntime.cloudMusicEnabled && MeloXSettingsRuntime.cloudLibraryPlacement
@@ -214,11 +225,15 @@ fun LibraryScreen(
         } else fallback.name
         runCatching { MeloXLibraryPage.valueOf(name) }
             .getOrDefault(fallback)
-            .takeIf { forcedPageName != null || it.isEnabled(source) }
+            .takeIf { forcedPageName != null || it.isEnabled(source, provider) }
             ?: fallback
     }
     var selectedPage by remember(source, forcedPageName) { mutableStateOf(initialLibraryPage) }
     var selectedPlaylist by remember(source, session.cookie) { mutableStateOf<NeteasePlaylistSummary?>(null) }
+    var savedAlbums by remember(source) { mutableStateOf<List<MusicAlbumSummary>>(emptyList()) }
+    var followedArtists by remember(source) { mutableStateOf<List<MusicArtistSummary>>(emptyList()) }
+    var selectedAlbum by remember(source) { mutableStateOf<MusicAlbumSummary?>(null) }
+    var selectedArtist by remember(source) { mutableStateOf<MusicArtistSummary?>(null) }
     var showLocalRecommendations by remember(source) { mutableStateOf(false) }
     var snapshot by remember(source, session.cookie) { mutableStateOf<NeteaseLibrarySnapshot?>(null) }
     var providerAccount by remember(source) { mutableStateOf<MusicAccountSummary?>(null) }
@@ -296,6 +311,21 @@ fun LibraryScreen(
             }.onSuccess { (account, playlists) ->
                 providerAccount = account
                 snapshot = if (account == null) null else MeloXLegacyUiBridge.library(playlists)
+                val collections = provider as? LibraryCollectionCapability
+                if (account != null && collections != null) {
+                    runCatching {
+                        withContext(Dispatchers.IO) {
+                            collections.savedAlbums(page = 1, pageSize = 100).items to
+                                collections.followedArtists(page = 1, pageSize = 100).items
+                        }
+                    }.onSuccess { (albums, artists) ->
+                        savedAlbums = albums
+                        followedArtists = artists
+                    }
+                } else {
+                    savedAlbums = emptyList()
+                    followedArtists = emptyList()
+                }
             }.onFailure { failure ->
                 providerAccount = null
                 snapshot = null
@@ -330,7 +360,7 @@ fun LibraryScreen(
         MeloXSettingsRuntime.cloudMusicEnabled,
         MeloXSettingsRuntime.downloadsEnabled,
     ) {
-        if (forcedPageName == null && !selectedPage.isEnabled(source)) {
+        if (forcedPageName == null && !selectedPage.isEnabled(source, provider)) {
             selectedPage = if (source == MusicSource.Netease || source == MusicSource.Local) MeloXLibraryPage.Songs else MeloXLibraryPage.Playlists
         }
     }
@@ -338,6 +368,8 @@ fun LibraryScreen(
     BackHandler(enabled = playlistBackEnabled && selectedPlaylist != null) {
         selectedPlaylist = null
     }
+    BackHandler(enabled = selectedAlbum != null) { selectedAlbum = null }
+    BackHandler(enabled = selectedArtist != null) { selectedArtist = null }
 
     if (source == MusicSource.Netease && !session.isLoggedIn) {
         MeloXLibraryLoginUnavailable(onLogin, source)
@@ -345,6 +377,16 @@ fun LibraryScreen(
     }
     if (source != MusicSource.Netease && source != MusicSource.Local && !loading && providerAccount == null && errorMessage == null) {
         MeloXLibraryLoginUnavailable(onLogin, source)
+        return
+    }
+    val openAlbum = selectedAlbum
+    if (openAlbum != null) {
+        MeloXUnifiedProviderAlbumDetailScreen(album = openAlbum, onBack = { selectedAlbum = null })
+        return
+    }
+    val openArtist = selectedArtist
+    if (openArtist != null) {
+        MeloXProviderArtistDetailScreen(artist = openArtist, onBack = { selectedArtist = null })
         return
     }
 
@@ -521,6 +563,34 @@ fun LibraryScreen(
                             )
 
                             MeloXLibraryPage.Downloads -> MeloXLibraryDownloadsPage(downloadStore)
+
+                            MeloXLibraryPage.Albums -> MeloXLibraryCoverListPage(
+                                rows = savedAlbums.map { album ->
+                                    MeloXLibraryCoverRow(
+                                        key = album.id.value,
+                                        title = album.title,
+                                        subtitle = album.artists.joinToString(" / ") { it.name }
+                                            .ifBlank { album.id.source.displayName },
+                                        artworkUrl = album.artworkUrl,
+                                    )
+                                },
+                                emptyRes = R.string.library_no_albums,
+                                onClick = { index -> selectedAlbum = savedAlbums.getOrNull(index) },
+                            )
+
+                            MeloXLibraryPage.Artists -> MeloXLibraryCoverListPage(
+                                rows = followedArtists.map { artist ->
+                                    MeloXLibraryCoverRow(
+                                        key = artist.id.value,
+                                        title = artist.name,
+                                        subtitle = artist.description?.takeIf { it.isNotBlank() }
+                                            ?: artist.id.source.displayName,
+                                        artworkUrl = artist.artworkUrl,
+                                    )
+                                },
+                                emptyRes = R.string.library_no_artists,
+                                onClick = { index -> selectedArtist = followedArtists.getOrNull(index) },
+                            )
                         }
                     }
                 }
@@ -1052,7 +1122,15 @@ private fun MeloXLibrarySegmentedPicker(
     forcedPageName: String? = null,
     modifier: Modifier = Modifier,
 ) {
-    val pages = MeloXLibraryPage.entries.filter { it.isEnabled(source) || it.name == forcedPageName }
+    val pickerContext = LocalContext.current.applicationContext
+    val pageProvider = remember(source, pickerContext) {
+        if (source == MusicSource.Netease) {
+            null
+        } else {
+            runCatching { MeloXMusicProviders.create(pickerContext).require(source) }.getOrNull()
+        }
+    }
+    val pages = MeloXLibraryPage.entries.filter { it.isEnabled(source, pageProvider) || it.name == forcedPageName }
     val panelShape = MeloXShapes.compact
     val lensShape = RoundedCornerShape(15.dp)
     val panelBackdrop = rememberLayerBackdrop()
@@ -1274,6 +1352,188 @@ private fun MeloXLibraryTrackRow(
                 fontSize = 13.sp,
                 color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.46f),
             )
+        }
+    }
+}
+
+private data class MeloXLibraryCoverRow(
+    val key: String,
+    val title: String,
+    val subtitle: String,
+    val artworkUrl: String?,
+)
+
+@Composable
+private fun MeloXLibraryCoverListPage(
+    rows: List<MeloXLibraryCoverRow>,
+    @androidx.annotation.StringRes emptyRes: Int,
+    onClick: (Int) -> Unit,
+) {
+    if (rows.isEmpty()) {
+        Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+            Text(
+                stringResource(emptyRes),
+                color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.48f),
+                fontSize = 17.sp,
+            )
+        }
+        return
+    }
+    LazyColumn(
+        modifier = Modifier.fillMaxSize(),
+        contentPadding = PaddingValues(bottom = MeloXBottomContentClearance),
+    ) {
+        items(rows.size, key = { index -> "$index:${rows[index].key}" }) { index ->
+            val row = rows[index]
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(72.dp)
+                    .clickable { onClick(index) }
+                    .padding(horizontal = 18.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                AsyncImage(
+                    model = row.artworkUrl,
+                    contentDescription = null,
+                    contentScale = ContentScale.Crop,
+                    modifier = Modifier
+                        .size(52.dp)
+                        .clip(RoundedCornerShape(8.dp)),
+                )
+                Column(Modifier.padding(start = 14.dp).weight(1f)) {
+                    Text(
+                        row.title,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        fontSize = 16.sp,
+                        color = MaterialTheme.colorScheme.onBackground,
+                    )
+                    if (row.subtitle.isNotBlank()) {
+                        Text(
+                            row.subtitle,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            fontSize = 13.sp,
+                            color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.46f),
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun MeloXProviderArtistDetailScreen(
+    artist: MusicArtistSummary,
+    onBack: () -> Unit,
+) {
+    val context = LocalContext.current
+    val capability = remember(artist.id.source) {
+        MeloXMusicProviders.create(context).require(artist.id.source) as? ArtistCapability
+    }
+    var songs by remember(artist.id) { mutableStateOf<List<SearchSong>>(emptyList()) }
+    var loading by remember(artist.id) { mutableStateOf(true) }
+    var errorMessage by remember(artist.id) { mutableStateOf<String?>(null) }
+    LaunchedEffect(artist.id) {
+        val reader = capability
+        if (reader == null) {
+            loading = false
+            errorMessage = context.getString(R.string.library_capability_missing, artist.id.source.displayName)
+            return@LaunchedEffect
+        }
+        runCatching {
+            withContext(Dispatchers.IO) {
+                reader.artistDetail(artist, page = 1, pageSize = 100).tracks.map(MeloXLegacyUiBridge::track)
+            }
+        }.onSuccess {
+            songs = it
+            errorMessage = null
+        }.onFailure { failure ->
+            errorMessage = failure.message
+        }
+        loading = false
+    }
+    Column(
+        Modifier
+            .fillMaxSize()
+            .background(MaterialTheme.colorScheme.background)
+            .statusBarsPadding(),
+    ) {
+        Row(
+            Modifier
+                .fillMaxWidth()
+                .height(52.dp)
+                .padding(horizontal = 8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Box(Modifier.size(44.dp).clickable(onClick = onBack), contentAlignment = Alignment.Center) {
+                Text("‹", fontSize = 28.sp, color = MaterialTheme.colorScheme.onBackground)
+            }
+            Text(
+                artist.name,
+                modifier = Modifier.weight(1f),
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                fontSize = 17.sp,
+                fontWeight = FontWeight.SemiBold,
+                color = MaterialTheme.colorScheme.onBackground,
+            )
+        }
+        when {
+            loading -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                CircularProgressIndicator()
+            }
+            errorMessage != null -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                Text(errorMessage.orEmpty(), color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.62f))
+            }
+            songs.isEmpty() -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                Text(
+                    stringResource(R.string.library_no_songs),
+                    color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.48f),
+                )
+            }
+            else -> LazyColumn(
+                modifier = Modifier.fillMaxSize(),
+                contentPadding = PaddingValues(bottom = MeloXBottomContentClearance),
+            ) {
+                items(songs.size, key = { index -> "$index:${songs[index].id}" }) { index ->
+                    val song = songs[index]
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(56.dp)
+                            .clickable {
+                                PlaybackCommands.playQueue(
+                                    context = context,
+                                    songs = songs,
+                                    selectedSongId = song.id,
+                                    onFailure = { failure -> errorMessage = failure.message },
+                                )
+                            }
+                            .padding(horizontal = 18.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Column(Modifier.weight(1f)) {
+                            Text(
+                                song.name,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                                fontSize = 16.sp,
+                                color = MaterialTheme.colorScheme.onBackground,
+                            )
+                            Text(
+                                song.artists,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                                fontSize = 13.sp,
+                                color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.46f),
+                            )
+                        }
+                    }
+                }
+            }
         }
     }
 }
@@ -1592,6 +1852,11 @@ private fun MeloXPlaylistDetailScreen(
         }
     }
     val providerPlaylist = initialPlaylist.providerPlaylist
+    val providerSync = remember(providerPlaylist?.id?.source, appContext) {
+        providerPlaylist?.let { backing ->
+            MeloXMusicProviders.create(appContext).require(backing.id.source) as? PlaylistSyncCapability
+        }
+    }
     val providerPlaylistCapability = remember(providerPlaylist?.id?.source, appContext) {
         providerPlaylist?.let { backing ->
             MeloXMusicProviders.create(appContext).require(backing.id.source) as? PlaylistCapability
@@ -1607,14 +1872,19 @@ private fun MeloXPlaylistDetailScreen(
     var showPlaylistActions by remember(initialPlaylist.id) { mutableStateOf(false) }
     var showBatchDownload by remember(initialPlaylist.id) { mutableStateOf(false) }
     var selectedTrackAction by remember(initialPlaylist.id) { mutableStateOf<SearchSong?>(null) }
+    var showProviderRename by remember(initialPlaylist.id) { mutableStateOf(false) }
+    var providerSyncTrack by remember(initialPlaylist.id) { mutableStateOf<SearchSong?>(null) }
+    var providerSyncBusy by remember(initialPlaylist.id) { mutableStateOf(false) }
+    var providerSyncError by remember(initialPlaylist.id) { mutableStateOf<String?>(null) }
     var isSaved by remember(initialPlaylist.id) { mutableStateOf<Boolean?>(null) }
     var currentUserId by remember(initialPlaylist.id) { mutableStateOf<Long?>(null) }
     var savingPlaylist by remember(initialPlaylist.id) { mutableStateOf(false) }
     var palette by remember(initialPlaylist.coverUrl) { mutableStateOf(MeloXDetailPalette.LightFallback) }
     var sortMode by remember(initialPlaylist.id) { mutableStateOf(MeloXPlaylistSortMode.Original) }
 
-    DisposableEffect(showPlaylistActions, showBatchDownload, selectedTrackAction) {
-        val visible = !isProviderCollection && (showPlaylistActions || showBatchDownload || selectedTrackAction != null)
+    DisposableEffect(showPlaylistActions, showBatchDownload, selectedTrackAction, showProviderRename, providerSyncTrack) {
+        val visible = showProviderRename || providerSyncTrack != null ||
+            (!isProviderCollection && (showPlaylistActions || showBatchDownload || selectedTrackAction != null))
         onModalVisibilityChanged(visible)
         onDispose {
             if (visible) onModalVisibilityChanged(false)
@@ -1821,8 +2091,10 @@ private fun MeloXPlaylistDetailScreen(
                         sharePlaylistFromDetail(context, displayed)
                     }
                 },
-                showMore = !isProviderCollection && !isAlbum,
-                onMore = { showPlaylistActions = true },
+                showMore = (!isAlbum && !isProviderCollection) || (providerSync != null && !isAlbum),
+                onMore = {
+                    if (providerSync != null) showProviderRename = true else showPlaylistActions = true
+                },
             )
             MeloXPlaylistSearchField(
                 value = searchQuery,
@@ -1952,7 +2224,7 @@ private fun MeloXPlaylistDetailScreen(
                             song = song,
                             index = index,
                             foreground = foreground,
-                            showMore = !isProviderCollection,
+                            showMore = providerSync != null || !isProviderCollection,
                             onClick = {
                                 PlaybackCommands.playQueue(
                                     context = context,
@@ -1961,30 +2233,52 @@ private fun MeloXPlaylistDetailScreen(
                                     onFailure = { errorMessage = it.message ?: context.getString(R.string.library_play_failed) },
                                 )
                             },
-                            onMore = { selectedTrackAction = song },
+                            onMore = {
+                                if (providerSync != null) providerSyncTrack = song else selectedTrackAction = song
+                            },
                             onPlayNext = { PlaybackCommands.playNext(context, song) },
                             onPlayLast = { PlaybackCommands.addToQueue(context, song) },
-                            endAction = if (isProviderCollection) null else if (ownedPlaylistId != null) {
-                                MeloXSwipeAction(context.getString(R.string.library_remove_song), MeloXSymbol.Trash, Color(0xFFFF3B30)) {
-                                    scope.launch {
-                                        runCatching { operationsClient.removeSongFromPlaylist(song.id, ownedPlaylistId) }
-                                            .onSuccess { refreshPlaylist() }
-                                            .onFailure { errorMessage = it.message ?: context.getString(R.string.library_remove_failed) }
-                                    }
-                                }
-                            } else {
-                                MeloXSwipeAction(context.getString(R.string.artist_add_library), MeloXSymbol.Heart, Color(0xFFFF3B30)) {
-                                    scope.launch {
-                                        runCatching { operationsClient.setSongLiked(song.id, true) }
-                                            .onSuccess {
-                                                currentUserId?.let { userId ->
-                                                    cache.loadSnapshot(userId)?.let { cached ->
-                                                        cache.saveSnapshot(userId, cached.withSongLiked(song, true))
-                                                    }
-                                                }
-                                                onSongLikeChanged(song, true)
+                            endAction = run {
+                                val sync = providerSync
+                                val playlist = providerPlaylist
+                                val track = song.providerTrack
+                                if (sync != null && playlist != null && track != null) {
+                                    MeloXSwipeAction(context.getString(R.string.library_remove_song), MeloXSymbol.Trash, Color(0xFFFF3B30)) {
+                                        if (!providerSyncBusy) {
+                                            providerSyncBusy = true
+                                            scope.launch {
+                                                runCatching {
+                                                    withContext(Dispatchers.IO) { sync.removeTrackFromPlaylist(track, playlist) }
+                                                }.onSuccess { refreshPlaylist() }
+                                                    .onFailure { errorMessage = it.message ?: context.getString(R.string.library_remove_failed) }
+                                                providerSyncBusy = false
                                             }
-                                            .onFailure { errorMessage = it.message ?: context.getString(R.string.library_add_failed) }
+                                        }
+                                    }
+                                } else if (isProviderCollection) {
+                                    null
+                                } else if (ownedPlaylistId != null) {
+                                    MeloXSwipeAction(context.getString(R.string.library_remove_song), MeloXSymbol.Trash, Color(0xFFFF3B30)) {
+                                        scope.launch {
+                                            runCatching { operationsClient.removeSongFromPlaylist(song.id, ownedPlaylistId) }
+                                                .onSuccess { refreshPlaylist() }
+                                                .onFailure { errorMessage = it.message ?: context.getString(R.string.library_remove_failed) }
+                                        }
+                                    }
+                                } else {
+                                    MeloXSwipeAction(context.getString(R.string.artist_add_library), MeloXSymbol.Heart, Color(0xFFFF3B30)) {
+                                        scope.launch {
+                                            runCatching { operationsClient.setSongLiked(song.id, true) }
+                                                .onSuccess {
+                                                    currentUserId?.let { userId ->
+                                                        cache.loadSnapshot(userId)?.let { cached ->
+                                                            cache.saveSnapshot(userId, cached.withSongLiked(song, true))
+                                                        }
+                                                    }
+                                                    onSongLikeChanged(song, true)
+                                                }
+                                                .onFailure { errorMessage = it.message ?: context.getString(R.string.library_add_failed) }
+                                        }
                                     }
                                 }
                             },
@@ -1999,6 +2293,77 @@ private fun MeloXPlaylistDetailScreen(
                     }
                 }
             }
+        }
+
+        val sync = providerSync
+        val backingPlaylist = providerPlaylist
+        if (sync != null && backingPlaylist != null && (showProviderRename || providerSyncTrack != null)) {
+            val track = providerSyncTrack
+            val index = track?.let { selected -> filteredSongs.indexOfFirst { it.id == selected.id } } ?: -1
+            val canReorder = sortMode == MeloXPlaylistSortMode.Original && searchQuery.isBlank()
+            val mutatePlaylist: (suspend () -> Unit) -> Unit = { block ->
+                if (!providerSyncBusy) {
+                    providerSyncBusy = true
+                    providerSyncError = null
+                    scope.launch {
+                        runCatching { withContext(Dispatchers.IO) { block() } }
+                            .onSuccess {
+                                showProviderRename = false
+                                providerSyncTrack = null
+                                refreshPlaylist()
+                            }
+                            .onFailure { providerSyncError = it.message }
+                        providerSyncBusy = false
+                    }
+                }
+            }
+            MeloXProviderPlaylistSyncSheet(
+                title = displayed.name,
+                trackName = track?.name,
+                canRename = track == null,
+                canDelete = track == null && sync.canDeletePlaylists,
+                onDelete = {
+                    if (!providerSyncBusy) {
+                        providerSyncBusy = true
+                        providerSyncError = null
+                        scope.launch {
+                            runCatching { withContext(Dispatchers.IO) { sync.deletePlaylist(backingPlaylist) } }
+                                .onSuccess {
+                                    showProviderRename = false
+                                    onBack()
+                                }
+                                .onFailure { providerSyncError = it.message }
+                            providerSyncBusy = false
+                        }
+                    }
+                },
+                canRemove = track?.providerTrack != null,
+                canMoveUp = canReorder && index > 0,
+                canMoveDown = canReorder && index >= 0 && index < filteredSongs.lastIndex,
+                busy = providerSyncBusy,
+                error = providerSyncError,
+                onRename = { name -> mutatePlaylist { sync.renamePlaylist(backingPlaylist, name) } },
+                onRemove = {
+                    track?.providerTrack?.let { current ->
+                        mutatePlaylist { sync.removeTrackFromPlaylist(current, backingPlaylist) }
+                    }
+                },
+                onMoveUp = {
+                    track?.providerTrack?.let { current ->
+                        mutatePlaylist { sync.reorderPlaylistTrack(backingPlaylist, current, index - 1) }
+                    }
+                },
+                onMoveDown = {
+                    track?.providerTrack?.let { current ->
+                        mutatePlaylist { sync.reorderPlaylistTrack(backingPlaylist, current, index + 1) }
+                    }
+                },
+                onDismiss = {
+                    showProviderRename = false
+                    providerSyncTrack = null
+                    providerSyncError = null
+                },
+            )
         }
 
         if (!isProviderCollection) {

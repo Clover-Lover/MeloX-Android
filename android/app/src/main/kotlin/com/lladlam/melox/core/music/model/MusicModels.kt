@@ -128,6 +128,15 @@ sealed interface ProviderTrackMetadata {
         val isrc: String? = null,
     ) : ProviderTrackMetadata
 
+    /**
+     * [setVideoId] is the playlist membership token YouTube requires to remove or
+     * reorder a song. Search results do not have one, so it stays null there.
+     */
+    data class YouTube(
+        val videoId: String,
+        val setVideoId: String? = null,
+    ) : ProviderTrackMetadata
+
     data class Local(
         val contentUri: String,
         val fileKey: String,

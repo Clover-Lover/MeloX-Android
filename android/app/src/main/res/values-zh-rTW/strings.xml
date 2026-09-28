@@ -82,6 +82,10 @@
     <string name="player_cancel_sleep">取消定時</string>
     <string name="player_loading_playlists">正在讀取歌單</string>
     <string name="player_new_playlist">新建歌單</string>
+    <string name="player_rename_playlist">重新命名</string>
+    <string name="player_move_up">上移</string>
+    <string name="player_move_down">下移</string>
+    <string name="player_delete_playlist">刪除歌單</string>
     <string name="player_track_count">%1$d 首歌曲</string>
     <string name="player_no_writable_playlists">沒有可寫入的自建歌單。</string>
     <string name="player_playlist_name">歌單名稱</string>
@@ -561,6 +565,8 @@
     <string name="library_login_source">前往登入 %1$s</string>
     <string name="library_no_songs">暫無歌曲</string>
     <string name="library_no_playlists">還沒有收藏歌單</string>
+    <string name="library_no_albums">還沒有收藏專輯</string>
+    <string name="library_no_artists">還沒有關注藝人</string>
     <string name="library_local_meta">本地演算法 · %1$d 首 · 唯讀</string>
     <string name="library_local_detail">本地規則與輕量模型產生 · 唯讀內部歌單 · %1$d 首</string>
     <string name="library_no_similar">暫無達到相似度門檻的推薦歌曲\n請繼續播放、收藏或聽完歌曲後重新分析</string>

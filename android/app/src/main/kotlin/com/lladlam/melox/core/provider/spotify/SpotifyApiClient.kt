@@ -238,6 +238,61 @@ class SpotifyApiClient(
         Unit
     }
 
+    suspend fun savedAlbums(page: Int, pageSize: Int): MusicPage<MusicAlbumSummary> = withContext(Dispatchers.IO) {
+        if (page > 1) return@withContext MusicPage(emptyList(), page, pageSize, 0)
+        val result = pageItems("me/albums", 1, pageSize) { SpotifyJsonMapper.album(it.optJSONObject("album") ?: it) }
+        MusicPage(result.items, page, pageSize, result.total, false)
+    }
+
+    suspend fun followedArtists(page: Int, pageSize: Int): MusicPage<MusicArtistSummary> = withContext(Dispatchers.IO) {
+        if (page > 1) return@withContext MusicPage(emptyList(), page, pageSize, 0)
+        val root = get("me/following", mapOf("type" to "artist", "limit" to pageSize.coerceIn(1, 50).toString()))
+        val artists = root.optJSONObject("artists")
+        val items = artists?.optJSONArray("items").objects().mapNotNull(SpotifyJsonMapper::artist)
+        MusicPage(items, page, pageSize, artists?.optLong("total")?.takeIf { it >= 0L }, false)
+    }
+
+    suspend fun createPlaylist(name: String): MusicPlaylistSummary = withContext(Dispatchers.IO) {
+        val created = request("POST", "me/playlists", JSONObject().put("name", name.ifBlank { "New playlist" }))
+        SpotifyJsonMapper.playlist(created)
+            ?: MusicPlaylistSummary(MusicResourceId(MusicSource.Spotify, created.optString("id")), name)
+    }
+
+    suspend fun renamePlaylist(playlist: MusicPlaylistSummary, name: String) = withContext(Dispatchers.IO) {
+        request("PUT", "playlists/${playlist.id.value}", JSONObject().put("name", name))
+        Unit
+    }
+
+    suspend fun deletePlaylist(playlist: MusicPlaylistSummary) = withContext(Dispatchers.IO) {
+        if (playlist.id.value == LikedSongsPlaylistId) error("喜欢的歌曲不能删除")
+        request("DELETE", "playlists/${playlist.id.value}/followers")
+        Unit
+    }
+
+    suspend fun removeTrackFromPlaylist(track: MusicTrack, playlist: MusicPlaylistSummary) = withContext(Dispatchers.IO) {
+        val body = JSONObject().put("uris", JSONArray().put("spotify:track:${track.id.value}"))
+        request("DELETE", "playlists/${playlist.id.value}/items", body)
+        Unit
+    }
+
+    /**
+     * Spotify counts [insert_before] against the list before the move, so a song
+     * moving down has to aim one past the index the caller asked for.
+     */
+    suspend fun reorderPlaylistTrack(playlist: MusicPlaylistSummary, track: MusicTrack, newIndex: Int) =
+        withContext(Dispatchers.IO) {
+            val current = pageItems("playlists/${playlist.id.value}/items", 1, 100, SpotifyJsonMapper::playlistItem)
+                .items.indexOfFirst { it.id.value == track.id.value }
+            if (current < 0) error("这首歌不在歌单里，无法调整顺序")
+            val insertBefore = if (newIndex > current) newIndex + 1 else newIndex
+            request(
+                "PUT",
+                "playlists/${playlist.id.value}/items",
+                JSONObject().put("range_start", current).put("insert_before", insertBefore.coerceAtLeast(0)).put("range_length", 1),
+            )
+            Unit
+        }
+
     private suspend fun <T> search(
         query: String,
         page: Int,

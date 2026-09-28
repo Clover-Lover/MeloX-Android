@@ -82,6 +82,10 @@
     <string name="player_cancel_sleep">Cancel timer</string>
     <string name="player_loading_playlists">Loading playlists</string>
     <string name="player_new_playlist">New playlist</string>
+    <string name="player_rename_playlist">Rename</string>
+    <string name="player_move_up">Move up</string>
+    <string name="player_move_down">Move down</string>
+    <string name="player_delete_playlist">Delete playlist</string>
     <string name="player_track_count">%1$d songs</string>
     <string name="player_no_writable_playlists">No playlists you can add to.</string>
     <string name="player_playlist_name">Playlist name</string>
@@ -561,6 +565,8 @@
     <string name="library_login_source">Sign in to %1$s</string>
     <string name="library_no_songs">No songs yet</string>
     <string name="library_no_playlists">No saved playlists yet</string>
+    <string name="library_no_albums">No saved albums yet</string>
+    <string name="library_no_artists">No followed artists yet</string>
     <string name="library_local_meta">On-device · %1$d songs · read only</string>
     <string name="library_local_detail">On-device rules and a lightweight model · read-only playlist · %1$d songs</string>
     <string name="library_no_similar">No songs passed the similarity threshold.\nKeep playing, liking, or finishing songs, then analyze again.</string>

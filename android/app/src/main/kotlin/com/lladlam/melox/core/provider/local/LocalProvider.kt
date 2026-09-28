@@ -126,6 +126,12 @@ class LocalProvider(context: Context) : MusicProvider, SearchCapability, Playbac
         return MusicPlaylistSummary(MusicResourceId(source, playlist.id), playlist.name, trackCount = 0)
     }
 
+    override val canDeletePlaylists = true
+
+    override suspend fun deletePlaylist(playlist: MusicPlaylistSummary) {
+        repository.removePlaylist(playlist.id.value)
+    }
+
     override suspend fun renamePlaylist(playlist: MusicPlaylistSummary, name: String) {
         repository.playlists().firstOrNull { it.id == playlist.id.value }?.let {
             repository.savePlaylist(it.copy(name = name.ifBlank { it.name }))

@@ -21,6 +21,7 @@ import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
@@ -164,5 +165,97 @@ private fun sharePlaylist(context: Context, playlist: NeteasePlaylistSummary) {
                 context.getString(R.string.library_share_playlist),
             ).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
         )
+    }
+}
+
+@Composable
+internal fun MeloXProviderPlaylistSyncSheet(
+    title: String,
+    trackName: String?,
+    canRename: Boolean,
+    canDelete: Boolean,
+    canRemove: Boolean,
+    canMoveUp: Boolean,
+    canMoveDown: Boolean,
+    busy: Boolean,
+    error: String?,
+    onRename: (String) -> Unit,
+    onDelete: () -> Unit,
+    onRemove: () -> Unit,
+    onMoveUp: () -> Unit,
+    onMoveDown: () -> Unit,
+    onDismiss: () -> Unit,
+) {
+    var name by remember(title) { mutableStateOf(title) }
+    BackHandler(onBack = onDismiss)
+    ModalBottomSheet(
+        onDismissRequest = onDismiss,
+        sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
+        containerColor = MaterialTheme.colorScheme.surface,
+        contentColor = MaterialTheme.colorScheme.onSurface,
+        shape = RoundedCornerShape(topStart = 38.dp, topEnd = 38.dp),
+    ) {
+        Column(
+            Modifier.fillMaxWidth().navigationBarsPadding().padding(horizontal = 18.dp, vertical = 18.dp),
+        ) {
+            Text(
+                trackName ?: title,
+                color = MaterialTheme.colorScheme.onSurface,
+                fontSize = 20.sp,
+                fontWeight = FontWeight.Bold,
+            )
+            error?.let { message ->
+                Text(
+                    message,
+                    color = MaterialTheme.colorScheme.error,
+                    fontSize = 12.sp,
+                    modifier = Modifier.padding(top = 6.dp),
+                )
+            }
+            if (canRename) {
+                OutlinedTextField(
+                    value = name,
+                    onValueChange = { name = it },
+                    modifier = Modifier.fillMaxWidth().padding(top = 12.dp),
+                    singleLine = true,
+                    label = { Text(stringResource(R.string.player_playlist_name)) },
+                )
+            }
+            Spacer(Modifier.height(12.dp))
+            MeloXIosGroupedList(surfaceColor = MaterialTheme.colorScheme.surfaceContainerHigh) {
+                if (canRename) {
+                    PlaylistActionRow(stringResource(R.string.player_rename_playlist), MeloXSymbol.Check, false) {
+                        if (!busy && name.isNotBlank()) onRename(name.trim())
+                    }
+                }
+                if (canDelete) {
+                    PlaylistActionRow(stringResource(R.string.player_delete_playlist), MeloXSymbol.Trash, false) {
+                        if (!busy) onDelete()
+                    }
+                }
+                if (canMoveUp) {
+                    PlaylistActionRow(stringResource(R.string.player_move_up), MeloXSymbol.ArrowDown, false) {
+                        if (!busy) onMoveUp()
+                    }
+                }
+                if (canMoveDown) {
+                    PlaylistActionRow(stringResource(R.string.player_move_down), MeloXSymbol.ArrowDown, false) {
+                        if (!busy) onMoveDown()
+                    }
+                }
+                if (canRemove) {
+                    PlaylistActionRow(stringResource(R.string.player_remove_from_playlist), MeloXSymbol.Trash, false) {
+                        if (!busy) onRemove()
+                    }
+                }
+            }
+            if (busy) {
+                CircularProgressIndicator(
+                    Modifier.padding(top = 12.dp).size(18.dp),
+                    color = MaterialTheme.colorScheme.primary,
+                    strokeWidth = 2.dp,
+                )
+            }
+        }
     }
 }

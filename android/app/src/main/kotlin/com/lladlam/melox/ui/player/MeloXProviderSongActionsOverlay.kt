@@ -28,7 +28,10 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.rememberModalBottomSheetState
@@ -60,6 +63,7 @@ import com.lladlam.melox.core.music.model.ProviderTrackMetadata
 import com.lladlam.melox.core.music.provider.FavoriteCapability
 import com.lladlam.melox.core.music.provider.DownloadCapability
 import com.lladlam.melox.core.music.provider.MeloXMusicProviders
+import com.lladlam.melox.core.music.provider.PlaylistSyncCapability
 import com.lladlam.melox.core.music.provider.PlaylistWriteCapability
 import com.lladlam.melox.core.music.provider.ProviderAccountManager
 import com.lladlam.melox.core.network.MeloXSearchKind
@@ -106,6 +110,7 @@ internal fun MeloXProviderSongActionsOverlay(
     val downloadCapability = provider as? DownloadCapability
     val downloadStore = remember { MeloXProviderDownloadStore.get(context) }
     val playlistWriteCapability = provider as? PlaylistWriteCapability
+    val playlistSyncCapability = provider as? PlaylistSyncCapability
     val accountManager = remember { ProviderAccountManager(context) }
     val providerLoggedIn = remember(identity.source, visible) {
         accountManager.state(identity.source).loggedIn
@@ -130,6 +135,8 @@ internal fun MeloXProviderSongActionsOverlay(
     var favoriteKnownState by remember(identity) { mutableStateOf<Boolean?>(null) }
     var favoriteWorking by remember(identity) { mutableStateOf(false) }
     var writablePlaylists by remember(identity) { mutableStateOf<List<MusicPlaylistSummary>>(emptyList()) }
+    var showCreatePlaylist by remember(identity, visible, page) { mutableStateOf(false) }
+    var newPlaylistName by remember(identity, visible, page) { mutableStateOf("") }
     var playlistsLoading by remember(identity) { mutableStateOf(false) }
     var playlistWriteWorking by remember(identity) { mutableStateOf(false) }
     var actionStatus by remember(identity) { mutableStateOf<String?>(null) }
@@ -331,6 +338,16 @@ internal fun MeloXProviderSongActionsOverlay(
                             }
 
                             ProviderSongActionPage.Playlists -> {
+                                if (playlistSyncCapability != null && providerLoggedIn) {
+                                    ProviderActionItem(
+                                        title = stringResource(R.string.player_new_playlist),
+                                        symbol = "＋",
+                                        enabled = !playlistWriteWorking,
+                                    ) {
+                                        newPlaylistName = ""
+                                        showCreatePlaylist = true
+                                    }
+                                }
                                 when {
                                     playlistsLoading -> ProviderActionItem(stringResource(R.string.player_loading_writable), "…", enabled = false) {}
                                     writablePlaylists.isEmpty() -> ProviderActionItem(stringResource(R.string.player_no_writable), "—", enabled = false) {}
@@ -397,6 +414,62 @@ internal fun MeloXProviderSongActionsOverlay(
                             }
                         }
                         ProviderActionStatus(actionStatus, actionError)
+                        if (showCreatePlaylist) {
+                            AlertDialog(
+                                onDismissRequest = { if (!playlistWriteWorking) showCreatePlaylist = false },
+                                title = { Text(stringResource(R.string.player_new_playlist)) },
+                                text = {
+                                    OutlinedTextField(
+                                        value = newPlaylistName,
+                                        onValueChange = { newPlaylistName = it },
+                                        singleLine = true,
+                                        label = { Text(stringResource(R.string.player_playlist_name)) },
+                                    )
+                                },
+                                confirmButton = {
+                                    TextButton(
+                                        enabled = !playlistWriteWorking,
+                                        onClick = {
+                                            if (playlistWriteWorking) return@TextButton
+                                            val sync = playlistSyncCapability ?: return@TextButton
+                                            val write = playlistWriteCapability ?: return@TextButton
+                                            val name = newPlaylistName.trim().ifBlank {
+                                                context.getString(R.string.player_new_playlist)
+                                            }
+                                            playlistWriteWorking = true
+                                            actionError = null
+                                            actionStatus = null
+                                            scope.launch {
+                                                runCatching {
+                                                    withContext(Dispatchers.IO) {
+                                                        val created = sync.createPlaylist(name)
+                                                        write.addTrackToPlaylist(actionTrack, created)
+                                                        created
+                                                    }
+                                                }.onSuccess { created ->
+                                                    showCreatePlaylist = false
+                                                    actionStatus = context.getString(R.string.player_added_to_playlist, created.title)
+                                                    page = ProviderSongActionPage.Main
+                                                }.onFailure { failure ->
+                                                    actionError = failure.message ?: context.getString(R.string.player_playlist_create_failed)
+                                                }
+                                                playlistWriteWorking = false
+                                            }
+                                        },
+                                    ) {
+                                        Text(stringResource(R.string.player_create_and_add))
+                                    }
+                                },
+                                dismissButton = {
+                                    TextButton(
+                                        enabled = !playlistWriteWorking,
+                                        onClick = { showCreatePlaylist = false },
+                                    ) {
+                                        Text(stringResource(android.R.string.cancel))
+                                    }
+                                },
+                            )
+                        }
         }
     }
 }

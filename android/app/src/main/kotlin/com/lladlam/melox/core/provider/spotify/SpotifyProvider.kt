@@ -20,11 +20,13 @@ import com.lladlam.melox.core.music.provider.ArtistCapability
 import com.lladlam.melox.core.music.provider.CatalogSearchCapability
 import com.lladlam.melox.core.music.provider.DownloadCapability
 import com.lladlam.melox.core.music.provider.FavoriteCapability
+import com.lladlam.melox.core.music.provider.LibraryCollectionCapability
 import com.lladlam.melox.core.music.provider.LyricsCapability
 import com.lladlam.melox.core.music.provider.MusicCapability
 import com.lladlam.melox.core.music.provider.MusicProvider
 import com.lladlam.melox.core.music.provider.PlaybackCapability
 import com.lladlam.melox.core.music.provider.PlaylistCapability
+import com.lladlam.melox.core.music.provider.PlaylistSyncCapability
 import com.lladlam.melox.core.music.provider.PlaylistWriteCapability
 import com.lladlam.melox.core.music.provider.SearchCapability
 import com.lladlam.melox.core.music.provider.UserLibraryCapability
@@ -46,7 +48,8 @@ class SpotifyProvider(
     private val playbackProviders: () -> List<MusicProvider>,
 ) : MusicProvider, SearchCapability, CatalogSearchCapability, PlaybackCapability, DownloadCapability,
     FavoriteCapability, UserLibraryCapability, PlaylistCapability, PlaylistWriteCapability,
-    AlbumCapability, ArtistCapability, LyricsCapability {
+    AlbumCapability, ArtistCapability, LyricsCapability,
+    LibraryCollectionCapability, PlaylistSyncCapability {
     private val appContext = context.applicationContext
     private val api = SpotifyApiClient(context, clientId, httpClient)
     private val librespot = SpotifyLibrespotPlayback(appContext, clientId)
@@ -92,6 +95,33 @@ class SpotifyProvider(
     override suspend fun setFavorite(track: MusicTrack, favorite: Boolean) = api.setFavorite(track, favorite)
     override suspend fun addTrackToPlaylist(track: MusicTrack, playlist: MusicPlaylistSummary) =
         api.addTrackToPlaylist(track, playlist)
+
+    override suspend fun savedAlbums(page: Int, pageSize: Int) = api.savedAlbums(page, pageSize)
+    override suspend fun followedArtists(page: Int, pageSize: Int) = api.followedArtists(page, pageSize)
+
+    override suspend fun createPlaylist(name: String) = api.createPlaylist(name)
+
+    override suspend fun renamePlaylist(playlist: MusicPlaylistSummary, name: String) {
+        require(playlist.id.source == source)
+        api.renamePlaylist(playlist, name)
+    }
+
+    override val canDeletePlaylists = true
+
+    override suspend fun deletePlaylist(playlist: MusicPlaylistSummary) {
+        require(playlist.id.source == source)
+        api.deletePlaylist(playlist)
+    }
+
+    override suspend fun removeTrackFromPlaylist(track: MusicTrack, playlist: MusicPlaylistSummary) {
+        require(track.id.source == source && playlist.id.source == source)
+        api.removeTrackFromPlaylist(track, playlist)
+    }
+
+    override suspend fun reorderPlaylistTrack(playlist: MusicPlaylistSummary, track: MusicTrack, newIndex: Int) {
+        require(playlist.id.source == source && track.id.source == source)
+        api.reorderPlaylistTrack(playlist, track, newIndex)
+    }
 
     /**
      * Real Spotify playback through librespot. Falls back to the existing
