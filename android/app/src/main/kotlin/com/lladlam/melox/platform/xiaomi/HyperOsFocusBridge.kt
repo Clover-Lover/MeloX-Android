@@ -62,6 +62,7 @@ object HyperOsFocusBridge {
     fun playbackPayload(
         context: Context,
         lyric: String,
+        nextLyric: String = "",
         songTitle: String,
         artist: String,
         positionMs: Long,
@@ -83,7 +84,7 @@ object HyperOsFocusBridge {
         } else {
             0
         }
-        val key = listOf(songTitle, artist, text, progress / 2, isPlaying).joinToString("|")
+        val key = listOf(songTitle, artist, text, nextLyric.trim(), progress / 2, isPlaying).joinToString("|")
         if (key == lastPublishedKey) return null
         lastPublishedKey = key
 
@@ -116,8 +117,7 @@ object HyperOsFocusBridge {
                 bigIslandArea {
                     applyMeloXLyric(
                         lyric = text,
-                        songTitle = songTitle,
-                        artist = artist,
+                        nextLyric = nextLyric,
                     )
                 }
                 smallIslandArea {
@@ -188,11 +188,10 @@ object HyperOsFocusBridge {
 
     private fun BigIslandArea.applyMeloXLyric(
         lyric: String,
-        songTitle: String,
-        artist: String,
+        nextLyric: String,
     ) {
         val left = lyric.take(42).ifBlank { "♪" }
-        val right = songLabel(songTitle, artist).ifBlank { "MeloX" }.take(24)
+        val right = nextLyric.trim().take(42).ifBlank { left }
         imageTextInfoLeft {
             type = 1
             textInfo {

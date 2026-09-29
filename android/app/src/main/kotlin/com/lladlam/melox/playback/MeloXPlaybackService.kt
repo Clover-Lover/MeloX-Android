@@ -1330,6 +1330,7 @@ class MeloXPlaybackService : MediaSessionService() {
         HyperOsFocusBridge.playbackPayload(
             context = this,
             lyric = line,
+            nextLyric = nextLine,
             songTitle = metadata.title?.toString().orEmpty(),
             artist = metadata.artist?.toString().orEmpty(),
             positionMs = player?.currentPosition ?: 0L,
