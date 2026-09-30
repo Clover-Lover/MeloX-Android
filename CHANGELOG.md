@@ -1,6 +1,6 @@
 # 更新日志
 
-[English](../README.en.md)
+[English](../README.md)
 
 ## 0.6.1 — 2026-09-26
 

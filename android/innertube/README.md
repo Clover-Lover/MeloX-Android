@@ -1,6 +1,6 @@
 # innertube
 
-[中文](../../README.md)
+[中文](../../README.zh-Hans.md)
 
 Vendored from **Metrolist** — <https://github.com/mostafaalagamy/Metrolist> —
 licensed GPL-3.0, the same licence this project carries. Copyright remains with

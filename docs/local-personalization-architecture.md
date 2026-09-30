@@ -1,6 +1,6 @@
 # MeloX 本地个性化推荐实现文档
 
-[English](../README.en.md)
+[English](../README.md)
 
 ## 目标
 

@@ -1,12 +1,12 @@
 # MeloX Android 开发目录
 
-[English](../README.en.md)
+[English](../README.md)
 
 这里是 MeloX Android 的原生 Android 工程。
 
 当前开发版本：`0.6.1`（`versionCode 19`）。
 
-完整的项目介绍、功能状态、许可证、第三方项目与构建说明请参阅仓库根目录的 [`README.md`](../README.md)。
+完整的项目介绍、功能状态、许可证、第三方项目与构建说明请参阅仓库根目录的 [`README.zh-Hans.md`](../README.zh-Hans.md)。
 
 ## 设计目标
 

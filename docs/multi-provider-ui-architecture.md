@@ -1,6 +1,6 @@
 # MeloX Multi-Provider UI Architecture Contract
 
-[中文](../README.md)
+[中文](../README.zh-Hans.md)
 
 This document is an architectural invariant for the Android port.
 

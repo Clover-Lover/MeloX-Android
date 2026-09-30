@@ -1,6 +1,6 @@
 # 已知问题记录
 
-[English](../README.en.md)
+[English](../README.md)
 
 记录规划与排查中的问题，作为待办追踪。
 

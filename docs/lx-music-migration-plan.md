@@ -1,6 +1,6 @@
 # LX Music 音源接入规划
 
-[English](../README.en.md)
+[English](../README.md)
 
 对比对象：`lx-music-mobile`（`/项目/lx-music-mobile`）与 MeloX 现有 `core/provider/lxuser`。
 
