@@ -251,6 +251,11 @@ fun SettingsScreen(
 ) {
     val context = LocalContext.current
     var route by remember { mutableStateOf<SettingsRoute?>(null) }
+    // Retain the detail content while its exit animation runs. `route?.let {}` would
+    // blank the page the moment Back is pressed, so the slide-out animated an empty box
+    // (gesture back only looked fine because it drives backProgress before closing).
+    var detailRoute by remember { mutableStateOf<SettingsRoute?>(null) }
+    if (route != null) detailRoute = route
     val backProgress = remember { Animatable(0f) }
     var search by remember { mutableStateOf("") }
     // Keep the root ScrollState alive while a detail route is displayed.
@@ -290,7 +295,7 @@ fun SettingsScreen(
         exit = meloXPageExit(toRight = true),
         modifier = Modifier.fillMaxSize().zIndex(1f),
     ) {
-        route?.let { selectedRoute ->
+        detailRoute?.let { selectedRoute ->
             Box(
                 Modifier
                     .fillMaxSize()
