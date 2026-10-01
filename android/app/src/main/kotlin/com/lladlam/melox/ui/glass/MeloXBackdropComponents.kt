@@ -441,11 +441,12 @@ fun Modifier.meloXLiquidBottomBar(
             vibrancy()
             // ── 逐项照搬 kyant0 官方 `LiquidBottomTabs` 面板层（2026-09-25）────────
             //   官方源 `app/src/commonMain/.../components/LiquidBottomTabs.kt` 第 1 层：
-            //     effects = { vibrancy(); blur(8f.dp.toPx()); lens(24f.dp.toPx(), 24f.dp.toPx()) }
+            //     effects = { vibrancy(); blur(...); lens(24f.dp.toPx(), 24f.dp.toPx()) }
             //     onDrawSurface = { drawRect(containerColor) }
-            // blur 回到官方 8dp。2dp 会让锐利内容穿进 lens，指示器和折射碎掉。
-            // 面板与捕获层必须同值。
-            blur(8.dp.toPx())
+            //   ⚠ 不变约束：面板 blur 必须 ≥ 捕获层 blur，两处永远同值。
+            //     二者一旦不等，「指示器 / 折射混乱」就会重现 —— 成因是锐利的页面内容
+            //     穿进 lens，被放大链撕成碎片；排查该症状第一步看本行，别先去动 lens。
+            blur(2.dp.toPx())
             lens(24.dp.toPx(), 24.dp.toPx())
         },
         highlight = {
@@ -544,8 +545,8 @@ fun Modifier.meloXLiquidCaptureLayer(
             //     highlight = { Highlight.Default.copy(alpha = p) }
             //     onDrawSurface = { drawRect(containerColor) }
             //     // ← 没有 shadow、没有 innerShadow
-            // blur 与面板同为官方 8dp。两处必须一起改。
-            blur(8.dp.toPx())
+            //   ⚠ blur 必须与面板同值：改一处就必须改另一处，二者不等即重现折射混乱。
+            blur(2.dp.toPx())
             // ⚠ **静息（p≈0）必须整段跳过 lens，不能传 lens(0, 0)**。
             //   AGSL 里：`if (-sd >= refractionHeight) return content.eval(coord);`
             //   refractionHeight = 0 时，形状内部（sd ≤ 0）全部提前返回 —— 但**抗锯齿边缘
