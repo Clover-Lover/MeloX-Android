@@ -5,7 +5,6 @@ import android.os.SystemClock
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableLongStateOf
@@ -165,8 +164,14 @@ internal fun MeloXLyricsArtworkBackdrop(
  * Android renderer for MeloX's artwork-driven Flowing Light background.
  * Palette extraction is identical in shape to ArtworkAccentColorProvider:
  * 160px downsample -> 3x3 cell averages. Android has no SwiftUI MeshGradient
- * equivalent on all supported API levels, so the same nine control colors are
- * blended as overlapping moving radial fields.
+ * equivalent on all supported API levels, so the nine control colors are laid
+ * out as overlapping radial fields and then sampled through a time-varying
+ * domain warp. The warp is what makes the field flow; the earlier version only
+ * moved the field centers and read as breathing rather than motion.
+ *
+ * Brightness is fixed. When a real beat analysis is available its energy/beat
+ * drive the warp speed and amplitude; otherwise the field drifts at a constant
+ * speed from the synthetic playback clock.
  */
 @Composable
 internal fun MeloXFlowingLightBackdrop(
@@ -199,9 +204,11 @@ internal fun MeloXFlowingLightBackdrop(
     val currentAverage = remember(meshWidth, meshHeight) { arrayOf(ArtworkDynamicPalette.Fallback.average) }
     val phase = remember(meshWidth, meshHeight) { floatArrayOf(0f) }
 
-    DisposableEffect(meshBitmaps) {
-        onDispose { meshBitmaps.forEach { bitmap -> if (!bitmap.isRecycled) bitmap.recycle() } }
-    }
+    // Deliberately no recycle() on dispose. The render coroutine runs on a
+    // background dispatcher and can still be inside setPixels() when this
+    // composable leaves or the mesh size changes; recycling here raced with
+    // that write and crashed with "Can't call setPixels() on a recycled
+    // bitmap". The two bitmaps are tiny (<= 48x110), so the GC reclaims them.
 
     LaunchedEffect(artworkUrl) {
         targetPalette = ArtworkDynamicPaletteProvider.paletteFor(context, artworkUrl)
@@ -216,7 +223,6 @@ internal fun MeloXFlowingLightBackdrop(
         }
         var energy = .18f
         var beatPulse = 0f
-        var downbeatPulse = 0f
         var writeIndex = 1
         val pixels = IntArray(meshWidth * meshHeight)
         val centersX = FloatArray(currentColors.size)
@@ -236,11 +242,16 @@ internal fun MeloXFlowingLightBackdrop(
                     phase = phase[0],
                     energy = energy,
                     beatPulse = beatPulse,
-                    downbeatPulse = downbeatPulse,
+                    reactive = false,
+                    saturation = MeloXSettingsRuntime.flowingLightSaturation.coerceIn(0f, 2f),
+                    brightness = MeloXSettingsRuntime.flowingLightBrightness.coerceIn(.4f, 1.6f),
                     centersX = centersX,
                     centersY = centersY,
                 )
-                meshBitmaps[writeIndex].setPixels(pixels, 0, meshWidth, 0, 0, meshWidth, meshHeight)
+                val bitmap = meshBitmaps[writeIndex]
+                if (!bitmap.isRecycled) {
+                    bitmap.setPixels(pixels, 0, meshWidth, 0, 0, meshWidth, meshHeight)
+                }
             }
             meshImage = meshImages[writeIndex]
             awaitCancellation()
@@ -258,11 +269,24 @@ internal fun MeloXFlowingLightBackdrop(
             else ((frameNanos - lastRenderNanos) / 1_000_000f).coerceIn(1f, 100f)
             lastRenderNanos = frameNanos
             val sample = MeloXAudioReactiveRuntime.sample(mediaId)
+            // Freeze in step with the music. A backdrop bound to a track pauses
+            // with it; pages that render this without a media id (playlist
+            // covers, dead scenes) keep drifting.
+            if (mediaId != null && !sample.isPlaying) continue
+            // Shape follows the music only when a real beat analysis exists.
+            // Otherwise the mesh drifts at a constant speed instead of tracking
+            // the synthetic playback clock, so its brightness never pulses.
+            val reactive = sample.hasAnalysis
             energy += (sample.energy - energy) * .18f
             beatPulse += (sample.beat - beatPulse) * .32f
-            downbeatPulse += (sample.downbeat - downbeatPulse) * .24f
-            val motion = .026f + energy.coerceIn(0f, 1f) * .038f + beatPulse * .016f
-            phase[0] = (phase[0] + motion * elapsedMs / (1_000f / 60f)) % (Math.PI.toFloat() * 2f)
+            val motion = if (reactive) {
+                .021f + energy.coerceIn(0f, 1f) * .030f + beatPulse * .013f
+            } else {
+                ConstantFlowMotion
+            }
+            // User speed multiplier from Settings -> Player appearance.
+            val speed = MeloXSettingsRuntime.flowingLightSpeed.coerceIn(.25f, 2f)
+            phase[0] = (phase[0] + motion * speed * elapsedMs / (1_000f / 60f)) % FlowPhasePeriod
             if (animatePalette) {
                 val paletteBlend = (elapsedMs / 280f).coerceIn(.08f, .45f)
                 currentColors.indices.forEach { index ->
@@ -274,6 +298,8 @@ internal fun MeloXFlowingLightBackdrop(
                 }
                 currentAverage[0] = lerpColor(currentAverage[0], targetPalette.average, paletteBlend)
             }
+            val saturation = MeloXSettingsRuntime.flowingLightSaturation.coerceIn(0f, 2f)
+            val brightness = MeloXSettingsRuntime.flowingLightBrightness.coerceIn(.4f, 1.6f)
             val bitmap = meshBitmaps[writeIndex]
             withContext(Dispatchers.Default) {
                 fillFlowingMeshPixels(
@@ -285,11 +311,15 @@ internal fun MeloXFlowingLightBackdrop(
                     phase = phase[0],
                     energy = energy,
                     beatPulse = beatPulse,
-                    downbeatPulse = downbeatPulse,
+                    reactive = reactive,
+                    saturation = saturation,
+                    brightness = brightness,
                     centersX = centersX,
                     centersY = centersY,
                 )
-                bitmap.setPixels(pixels, 0, meshWidth, 0, 0, meshWidth, meshHeight)
+                if (!bitmap.isRecycled) {
+                    bitmap.setPixels(pixels, 0, meshWidth, 0, 0, meshWidth, meshHeight)
+                }
             }
             meshImage = meshImages[writeIndex]
             writeIndex = 1 - writeIndex
@@ -313,9 +343,6 @@ internal fun MeloXFlowingLightBackdrop(
                 ),
             ),
         )
-
-        // The downbeat vignette is folded into the mesh pixels above so it does
-        // not require another full-screen blend pass.
     }
 }
 
@@ -326,6 +353,31 @@ private fun lerpColor(from: Color, to: Color, amount: Float): Color = Color(
     alpha = 1f,
 )
 
+/** Constant angular speed (radians per 60 Hz frame) when no beat analysis exists. */
+private const val ConstantFlowMotion = .032f
+
+/**
+ * Phase wrap point. Every time-varying term below multiplies the phase by a
+ * multiple of a quarter turn, so wrapping at four full turns (8π) is exact and
+ * the warp stays continuous instead of jumping when the phase rolls over.
+ */
+private const val FlowPhasePeriod = 25.132742f
+
+/**
+ * Base amplitude of the domain warp, in normalised screen units. The warp
+ * displaces the sampling coordinate so the whole colour field advects, which
+ * is what the previous symmetric radial fields could not do.
+ */
+private const val FlowWarpStrength = .15f
+
+/**
+ * Per-source travel frequencies. All are multiples of a quarter turn so the
+ * 8π phase wrap in [fillFlowingMeshPixels] stays continuous. Different values
+ * keep the nine colours from sweeping the field in lockstep.
+ */
+private val RoamFrequencyX = floatArrayOf(.50f, .25f, .75f, .50f, .25f, .75f, .50f, .25f, .75f)
+private val RoamFrequencyY = floatArrayOf(.25f, .75f, .50f, .75f, .50f, .25f, .50f, .25f, .75f)
+
 private fun fillFlowingMeshPixels(
     pixels: IntArray,
     meshWidth: Int,
@@ -335,40 +387,64 @@ private fun fillFlowingMeshPixels(
     phase: Float,
     energy: Float,
     beatPulse: Float,
-    downbeatPulse: Float,
+    reactive: Boolean,
+    saturation: Float,
+    brightness: Float,
     centersX: FloatArray,
     centersY: FloatArray,
 ) {
-    val radiusNormalized = (0.58f + energy.coerceIn(0f, 1f) * .08f + beatPulse * .035f)
-        .coerceAtLeast(.01f)
+    // Only a real beat analysis is allowed to shape the flow. With no analysis
+    // the warp and the source orbit keep a fixed size while `phase` advances at
+    // a constant speed, so the structure stays steady. Brightness is never
+    // modulated here: only the field moves.
+    val drive = if (reactive) 1f else 0f
+    val energyDrive = energy.coerceIn(0f, 1f) * drive
+    val beatDrive = beatPulse * drive
+    // Kernels are sharper than before so the nine artwork colours actually read
+    // as regions; a near-uniform field would swallow any warp.
+    val radiusNormalized = (0.45f + energyDrive * .07f + beatDrive * .03f).coerceAtLeast(.01f)
+    // Each colour source roams across the whole background on its own slow path
+    // instead of orbiting its artwork cell, so the palette keeps visiting new
+    // places. Frequencies are quarter-turn multiples so the 8π phase wrap stays
+    // seamless (see FlowPhasePeriod).
     for (index in colors.indices) {
-        val row = index / 3
-        val column = index % 3
-        val baseX = when (column) { 0 -> .08f; 1 -> .50f; else -> .92f }
-        val baseY = when (row) { 0 -> .10f; 1 -> .50f; else -> .90f }
-        val localPhase = phase + index * .71f
-        val displacement = .052f + energy.coerceIn(0f, 1f) * .045f
-        centersX[index] = baseX + sin(localPhase) * displacement
-        centersY[index] = baseY + cos(localPhase * .83f) * displacement * .87f
+        val freqX = RoamFrequencyX[index]
+        val freqY = RoamFrequencyY[index]
+        centersX[index] = .5f + .3f * sin(phase * freqX + index * 1.7f)
+        centersY[index] = .5f + .3f * cos(phase * freqY + index * .9f)
     }
     val maxDimension = maxOf(meshWidth, meshHeight).toFloat()
     val widthScale = meshWidth / maxDimension
     val heightScale = meshHeight / maxDimension
-    val baseWeight = .22f
-    val pulseGain = 1f + energy.coerceIn(0f, 1f) * .10f + beatPulse * .07f
-    val downbeatShade = 1f - (downbeatPulse * .16f).coerceIn(0f, .16f)
+    val baseWeight = .16f
+    val warp = FlowWarpStrength + energyDrive * .05f + beatDrive * .02f
+    val t = phase
     var pixelIndex = 0
     for (yIndex in 0 until meshHeight) {
         val v = yIndex.toFloat() / (meshHeight - 1).coerceAtLeast(1).toFloat()
         for (xIndex in 0 until meshWidth) {
             val u = xIndex.toFloat() / (meshWidth - 1).coerceAtLeast(1).toFloat()
+            // Two octaves of a slow curl-like field. Advancing `t` advects the
+            // field, so the colours visibly flow instead of breathing in place.
+            // Time multipliers are kept to multiples of a quarter turn so the
+            // 8π phase wrap above is seamless (see FlowPhasePeriod).
+            val warpX = sin(v * 3.1f + t) * cos(u * 2.3f - t * .75f) +
+                .5f * sin((u + v) * 4.9f - t * 1.25f)
+            val warpY = cos(u * 2.9f - t) * sin(v * 2.6f + t * .5f) +
+                .5f * cos((u - v) * 5.4f + t)
+            var sampleU = u + warp * warpX
+            var sampleV = v + warp * warpY
+            // A finer second pass gives the edges a marbled rather than a rigid
+            // look.
+            sampleU += warp * .28f * sin(sampleV * 6.7f - t * 1.5f)
+            sampleV += warp * .28f * cos(sampleU * 7.1f + t * 1.5f)
             var totalWeight = baseWeight
             var red = average.red * baseWeight
             var green = average.green * baseWeight
             var blue = average.blue * baseWeight
             for (colorIndex in colors.indices) {
-                val dx = (u - centersX[colorIndex]) * widthScale / radiusNormalized
-                val dy = (v - centersY[colorIndex]) * heightScale / radiusNormalized
+                val dx = (sampleU - centersX[colorIndex]) * widthScale / radiusNormalized
+                val dy = (sampleV - centersY[colorIndex]) * heightScale / radiusNormalized
                 val distanceSquared = dx * dx + dy * dy
                 val falloff = 1f / (1f + distanceSquared * 4.5f)
                 val weight = falloff * falloff
@@ -378,13 +454,27 @@ private fun fillFlowingMeshPixels(
                 green += color.green * weight
                 blue += color.blue * weight
             }
-            val r = ((red / totalWeight) * pulseGain * downbeatShade).coerceIn(0f, 1f)
-            val g = ((green / totalWeight) * pulseGain * downbeatShade).coerceIn(0f, 1f)
-            val b = ((blue / totalWeight) * pulseGain * downbeatShade).coerceIn(0f, 1f)
+            var r = red / totalWeight
+            var g = green / totalWeight
+            var b = blue / totalWeight
+            // User colour controls. Intensity scales the chroma around the
+            // pixel's own luminance so it never changes brightness; brightness
+            // is the separate, explicit multiplier.
+            if (saturation != 1f) {
+                val luminance = r * .2126f + g * .7152f + b * .0722f
+                r = luminance + (r - luminance) * saturation
+                g = luminance + (g - luminance) * saturation
+                b = luminance + (b - luminance) * saturation
+            }
+            if (brightness != 1f) {
+                r *= brightness
+                g *= brightness
+                b *= brightness
+            }
             pixels[pixelIndex++] = (0xFF shl 24) or
-                ((r * 255f).toInt() shl 16) or
-                ((g * 255f).toInt() shl 8) or
-                (b * 255f).toInt()
+                ((r.coerceIn(0f, 1f) * 255f).toInt() shl 16) or
+                ((g.coerceIn(0f, 1f) * 255f).toInt() shl 8) or
+                (b.coerceIn(0f, 1f) * 255f).toInt()
         }
     }
 }
