@@ -77,6 +77,12 @@ object MeloXSettingsRuntime {
         internal set
     var flowingBackdropEnabled by mutableStateOf(true)
         internal set
+    var flowingLightSpeed by mutableStateOf(1f)
+        internal set
+    var flowingLightSaturation by mutableStateOf(1f)
+        internal set
+    var flowingLightBrightness by mutableStateOf(1f)
+        internal set
     var playerBackgroundMode by mutableStateOf(MeloXPlayerBackgroundMode.FlowingLight)
         internal set
     var playerShell by mutableStateOf(MeloXPlayerShell.AppleMusic)
@@ -399,6 +405,9 @@ object MeloXSettingsRuntime {
                 MeloXPlayerBackgroundMode.BlurredArtwork
             }
         flowingBackdropEnabled = playerBackgroundMode != MeloXPlayerBackgroundMode.BlurredArtwork
+        flowingLightSpeed = MeloXSettingsPreferences.float(app, "player_flowing_speed", 1f).coerceIn(.25f, 2f)
+        flowingLightSaturation = MeloXSettingsPreferences.float(app, "player_flowing_saturation", 1f).coerceIn(0f, 2f)
+        flowingLightBrightness = MeloXSettingsPreferences.float(app, "player_flowing_brightness", 1f).coerceIn(.4f, 1.6f)
         playerShell = runCatching {
             MeloXPlayerShell.valueOf(MeloXSettingsPreferences.string(app, "player_shell", MeloXPlayerShell.AppleMusic.name))
         }.getOrDefault(MeloXPlayerShell.AppleMusic)
@@ -784,6 +793,9 @@ object MeloXSettingsPreferences {
             "lyrics_skyline_ambient_drift" -> MeloXSettingsRuntime.skylineAmbientDrift = value.coerceIn(0f, 2f)
             "lyrics_text_pv_motion_intensity" -> MeloXSettingsRuntime.textPVMotionIntensity = value.coerceIn(0f, 2f)
             "lyrics_text_pv_animation_speed" -> MeloXSettingsRuntime.textPVAnimationSpeed = value.coerceIn(0f, 4f)
+            "player_flowing_speed" -> MeloXSettingsRuntime.flowingLightSpeed = value.coerceIn(.25f, 2f)
+            "player_flowing_saturation" -> MeloXSettingsRuntime.flowingLightSaturation = value.coerceIn(0f, 2f)
+            "player_flowing_brightness" -> MeloXSettingsRuntime.flowingLightBrightness = value.coerceIn(.4f, 1.6f)
         }
     }
 

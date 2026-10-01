@@ -1164,6 +1164,9 @@
     <string name="settings_bg_mei_mesh">Mei GPU mesh background</string>
     <string name="settings_flowing_backdrop">Flowing light background</string>
     <string name="settings_flowing_backdrop_note">When off, a blurred artwork background is used.</string>
+    <string name="settings_flowing_speed">Flow speed</string>
+    <string name="settings_flowing_saturation">Color intensity</string>
+    <string name="settings_flowing_brightness">Brightness</string>
     <string name="settings_background_isolation">Isolate the player background</string>
     <string name="settings_background_isolation_note">When on, the player covers Home on its own. When off, the original transparent background returns and pages underneath may show through.</string>
     <string name="settings_background_fps">Live background frame rate</string>

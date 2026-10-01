@@ -1164,6 +1164,9 @@
     <string name="settings_bg_mei_mesh">Mei GPU メッシュ背景</string>
     <string name="settings_flowing_backdrop">流れる光の背景</string>
     <string name="settings_flowing_backdrop_note">オフにすると、ぼかしたアートワークを背景に使います。</string>
+    <string name="settings_flowing_speed">流れる速さ</string>
+    <string name="settings_flowing_saturation">色の強さ</string>
+    <string name="settings_flowing_brightness">明るさ</string>
     <string name="settings_background_isolation">プレーヤーの背景を分離</string>
     <string name="settings_background_isolation_note">オンにすると、プレーヤーがホームを単独で覆います。オフにすると、元の透明な背景に戻り、下のページが透けることがあります。</string>
     <string name="settings_background_fps">動く背景のフレームレート</string>

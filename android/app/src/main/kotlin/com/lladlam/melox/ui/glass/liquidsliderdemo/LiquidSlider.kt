@@ -57,6 +57,7 @@ fun MeloXDemoLiquidSlider(
     valueRange: ClosedFloatingPointRange<Float>,
     visibilityThreshold: Float,
     backdrop: Backdrop,
+    enabled: Boolean = true,
     modifier: Modifier = Modifier,
     onValueChangeFinished: () -> Unit = {},
 ) {
@@ -71,7 +72,7 @@ fun MeloXDemoLiquidSlider(
     val trackBackdrop = rememberLayerBackdrop()
 
     BoxWithConstraints(
-        modifier.fillMaxWidth(),
+        modifier.fillMaxWidth().graphicsLayer { alpha = if (enabled) 1f else 0.45f },
         contentAlignment = Alignment.CenterStart
     ) {
         val trackWidth = constraints.maxWidth
@@ -120,18 +121,25 @@ fun MeloXDemoLiquidSlider(
                 Modifier
                     .clip(Capsule())
                     .background(trackColor)
-                    .pointerInput(animationScope) {
-                        detectTapGestures { position ->
-                            val delta = (valueRange.endInclusive - valueRange.start) * (position.x / trackWidth)
-                            val targetValue =
-                                (if (isLtr) valueRange.start + delta
-                                else valueRange.endInclusive - delta)
-                                    .coerceIn(valueRange)
-                            dampedDragAnimation.animateToValue(targetValue)
-                            onValueChange(targetValue)
-                            onValueChangeFinished()
+                    .then(
+                        if (enabled) {
+                            Modifier.pointerInput(animationScope) {
+                                detectTapGestures { position ->
+                                    val delta =
+                                        (valueRange.endInclusive - valueRange.start) * (position.x / trackWidth)
+                                    val targetValue =
+                                        (if (isLtr) valueRange.start + delta
+                                        else valueRange.endInclusive - delta)
+                                            .coerceIn(valueRange)
+                                    dampedDragAnimation.animateToValue(targetValue)
+                                    onValueChange(targetValue)
+                                    onValueChangeFinished()
+                                }
+                            }
+                        } else {
+                            Modifier
                         }
-                    }
+                    )
                     .height(6f.dp)
                     .fillMaxWidth()
             )
@@ -158,7 +166,7 @@ fun MeloXDemoLiquidSlider(
                         (-size.width / 2f + trackWidth * dampedDragAnimation.progress)
                             .fastCoerceIn(-size.width / 4f, trackWidth - size.width * 3f / 4f) * if (isLtr) 1f else -1f
                 }
-                .then(dampedDragAnimation.modifier)
+                .then(if (enabled) dampedDragAnimation.modifier else Modifier)
                 .drawBackdrop(
                     backdrop = rememberCombinedBackdrop(
                         backdrop,

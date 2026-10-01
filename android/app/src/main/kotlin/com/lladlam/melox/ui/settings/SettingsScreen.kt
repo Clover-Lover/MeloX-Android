@@ -147,6 +147,7 @@ import com.lladlam.melox.ui.glass.MeloXGlassDialog
 import com.lladlam.melox.ui.glass.MeloXGlassButton
 import com.lladlam.melox.ui.glass.MeloXGlassButtonStyle
 import com.lladlam.melox.ui.glass.MeloXGlassToggle
+import com.lladlam.melox.ui.glass.MeloXLiquidSlider
 import com.lladlam.melox.ui.glass.MeloXSettingsDropdown
 import com.lladlam.melox.ui.glass.MeloXShapes
 import com.lladlam.melox.ui.glass.MeloXTypography
@@ -1601,6 +1602,32 @@ private fun PlayerAppearanceSettings(context: android.content.Context) {
             },
             grouped = true,
         )
+        if (MeloXSettingsRuntime.playerBackgroundMode == MeloXPlayerBackgroundMode.FlowingLight) {
+            PreferenceFloatSlider(
+                context,
+                stringResource(R.string.settings_flowing_speed),
+                "player_flowing_speed",
+                1f,
+                .25f..2f,
+                6,
+            ) { "%.2fx".format(it) }
+            PreferenceFloatSlider(
+                context,
+                stringResource(R.string.settings_flowing_saturation),
+                "player_flowing_saturation",
+                1f,
+                0f..2f,
+                19,
+            ) { context.getString(R.string.settings_unit_percent, (it * 100).toInt()) }
+            PreferenceFloatSlider(
+                context,
+                stringResource(R.string.settings_flowing_brightness),
+                "player_flowing_brightness",
+                1f,
+                .4f..1.6f,
+                11,
+            ) { context.getString(R.string.settings_unit_percent, (it * 100).toInt()) }
+        }
         SettingsToggleRow(context, stringResource(R.string.settings_flowing_backdrop), "player_flowing_backdrop", true, stringResource(R.string.settings_flowing_backdrop_note), grouped = true)
         SettingsToggleRow(context, stringResource(R.string.settings_background_isolation), "player_background_isolation", true, stringResource(R.string.settings_background_isolation_note), grouped = true)
         LyricsChoiceSetting(context, stringResource(R.string.settings_background_fps), "lyrics_background_frame_rate", 24, listOf(15, 24, 30, 45, 60), grouped = true) { value ->
@@ -1933,19 +1960,28 @@ private fun SettingsFloatSlider(
     label: (Float) -> String = { "${(it * 100).toInt()}%" },
     onValueChange: (Float) -> Unit,
 ) {
+    // Show the value the finger is currently on while dragging; the setting is
+    // still only committed once the drag ends.
+    var draggingValue by remember { mutableStateOf<Float?>(null) }
+    val shownValue = draggingValue ?: value
     Row(
-        modifier = Modifier.fillMaxWidth().padding(top = 12.dp),
+        // Match MeloXIosListRow's 16dp gutter so the label lines up with the
+        // neighbouring setting titles.
+        modifier = Modifier.fillMaxWidth().padding(start = 16.dp, end = 16.dp, top = 12.dp),
         horizontalArrangement = Arrangement.SpaceBetween,
     ) {
         Text(title, fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurface.copy(alpha = .48f))
-        Text(label(value), fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurface.copy(alpha = .58f))
+        Text(label(shownValue), fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurface.copy(alpha = .58f))
     }
-    Slider(
+    MeloXLiquidSlider(
         value = value,
         onValueChange = onValueChange,
+        onTransientValueChange = { draggingValue = it },
+        onValueChangeFinished = { draggingValue = null },
         valueRange = range,
-        steps = steps,
-        modifier = Modifier.fillMaxWidth(),
+        stepSize = if (steps > 0) (range.endInclusive - range.start) / (steps + 1) else 0f,
+        visibilityThreshold = 0.001f,
+        modifier = Modifier.fillMaxWidth().padding(start = 16.dp, end = 16.dp),
     )
 }
 

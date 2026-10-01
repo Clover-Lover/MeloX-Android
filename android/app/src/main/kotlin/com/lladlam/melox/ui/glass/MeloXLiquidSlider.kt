@@ -30,11 +30,13 @@ fun MeloXLiquidSlider(
     value: Float,
     onValueChange: (Float) -> Unit,
     onTransientValueChange: (Float) -> Unit = {},
+    onValueChangeFinished: () -> Unit = {},
     valueRange: ClosedFloatingPointRange<Float>,
-    stepSize: Float = 100f,
+    stepSize: Float = 0f,
     visibilityThreshold: Float = 0.01f,
+    enabled: Boolean = true,
     modifier: Modifier = Modifier,
-    contentDescription: String,
+    contentDescription: String? = null,
 ) {
     require(valueRange.endInclusive > valueRange.start) { "valueRange must not be empty" }
     require(stepSize >= 0f) { "stepSize must be non-negative" }
@@ -43,6 +45,7 @@ fun MeloXLiquidSlider(
     var interacting by remember { mutableStateOf(false) }
     val latestOnValueChange by rememberUpdatedState(onValueChange)
     val latestOnTransientValueChange by rememberUpdatedState(onTransientValueChange)
+    val latestOnValueChangeFinished by rememberUpdatedState(onValueChangeFinished)
     val steps = if (stepSize > 0f) {
         (((valueRange.endInclusive - valueRange.start) / stepSize).roundToInt() - 1).coerceAtLeast(0)
     } else 0
@@ -56,15 +59,18 @@ fun MeloXLiquidSlider(
         transientValue = settled
         interacting = false
         if (settled != externalValue) latestOnValueChange(settled)
+        latestOnValueChangeFinished()
     }
 
     val semantics = Modifier.semantics(mergeDescendants = true) {
-        this.contentDescription = contentDescription
+        if (contentDescription != null) this.contentDescription = contentDescription
         progressBarRangeInfo = ProgressBarRangeInfo(transientValue, valueRange, steps)
-        setProgress { requested ->
-            transientValue = quantizeMeloXSliderValue(requested, valueRange, stepSize)
-            finish()
-            true
+        if (enabled) {
+            setProgress { requested ->
+                transientValue = quantizeMeloXSliderValue(requested, valueRange, stepSize)
+                finish()
+                true
+            }
         }
     }
     val backdrop = LocalMeloXBackdrop.current
@@ -79,6 +85,7 @@ fun MeloXLiquidSlider(
             onValueChangeFinished = ::finish,
             valueRange = valueRange,
             steps = steps,
+            enabled = enabled,
             modifier = modifier.then(semantics),
         )
         return
@@ -95,6 +102,7 @@ fun MeloXLiquidSlider(
         valueRange = valueRange,
         visibilityThreshold = visibilityThreshold,
         backdrop = backdrop,
+        enabled = enabled,
         modifier = modifier.then(semantics),
     )
 }

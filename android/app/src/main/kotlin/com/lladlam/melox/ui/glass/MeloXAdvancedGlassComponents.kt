@@ -48,11 +48,12 @@ fun MeloXGlassSlider(
             Text(title, style = MeloXTypography.subheadline)
             Text(valueLabel(value), style = MeloXTypography.subheadline, color = MaterialTheme.colorScheme.onSurface.copy(alpha = .55f))
         }
-        Slider(
+        MeloXLiquidSlider(
             value = value,
             onValueChange = onValueChange,
             valueRange = valueRange,
-            steps = steps,
+            stepSize = if (steps > 0) (valueRange.endInclusive - valueRange.start) / (steps + 1) else 0f,
+            visibilityThreshold = 0.001f,
             modifier = Modifier.fillMaxWidth().semantics { contentDescription = "$title，${valueLabel(value)}" },
         )
     }
