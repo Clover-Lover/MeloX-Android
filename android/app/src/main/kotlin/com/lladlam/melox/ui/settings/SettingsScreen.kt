@@ -1599,7 +1599,6 @@ private fun PlayerAppearanceSettings(context: android.content.Context) {
                 MeloXPlayerBackgroundMode.FlowingLight to stringResource(R.string.settings_bg_flowing_light),
                 MeloXPlayerBackgroundMode.AppleLyrics to stringResource(R.string.settings_bg_apple_lyrics),
                 MeloXPlayerBackgroundMode.BlurredArtwork to stringResource(R.string.settings_bg_blurred_artwork),
-                MeloXPlayerBackgroundMode.MeiMesh to stringResource(R.string.settings_bg_mei_mesh),
             ),
             onSelected = {
                 MeloXSettingsPreferences.setString(context, "player_background_mode", it.name)
