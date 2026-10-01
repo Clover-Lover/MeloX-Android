@@ -123,6 +123,7 @@ import com.lladlam.melox.ui.player.MeloXSongActionsOverlay
 import com.lladlam.melox.ui.animation.MeloXMotion
 import com.lladlam.melox.ui.animation.meloXPageEnter
 import com.lladlam.melox.ui.animation.meloXPageExit
+import com.lladlam.melox.ui.animation.meloXSettledMillis
 import com.lladlam.melox.ui.layout.rememberMeloXWindowInfo
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.CancellationException
@@ -321,12 +322,11 @@ fun SearchScreen(
     // overlayDetail 一直保留到退出过渡跑完。否则返回瞬间 let 取到空、详情子树被
     // 立刻拆掉，共享元素封面就只有进入、没有返回。
     var overlayDetail by remember(source) { mutableStateOf<SearchDetailDestination?>(null) }
-    // 卡片「已被详情占用」的稳定 key。**不能在退出过渡一开始就放开**：若用瞬变的
-    // selectedDetail?.key，返回瞬间它变 null，刚收起的那张卡立刻重新满足
-    // `destinationKey != selectedKey` 而「复活」进 enter，可它的 sharedElement 还被
-    // 退场的 hero 占用 —— 于是卡片卡在 overlay 中间态不动。这里让它在退场动画跑完
-    // 之前一直保持指向旧详情，动画结束后才清空把卡片放回来。
-    var occupiedCardKey by remember(source) { mutableStateOf<String?>(null) }
+    // 卡片可见性必须与 selectedDetail 同帧同步：点击即退出、返回即进入，才能与详情
+    // hero 的 AnimatedVisibility 完全重叠。原「占用 key」方案把它压后到 LaunchedEffect
+    // 里赋值 —— 返回时要等 PageExitMillis + settle(280ms) 才放开，而 hero 的退场只有
+    // 220ms，卡片 enter 落在它结束之后，两端永不重叠 → sharedElement 无从配对。
+    // 过渡串行化已由 overlayTransitionBusy 排队负责，不再需要占用 key。
     // 详情覆盖层的进入/退出过渡是否仍在进行。并行动画（退出未跑完就点下一张卡）会让
     // 单个 AnimatedVisibility 取消旧过渡、直接跳到新目标，旧卡就被遗弃在半途。过渡期间
     // 直接忽略新的打开请求，把连续切换串行化，代价是一次点击延迟，收益是不会有卡死态。
@@ -546,20 +546,16 @@ fun SearchScreen(
         }
         applyDetail(destination)
     }
-    // 详情覆盖层的过渡生命周期：进入时占住（锁 + 记住是哪张卡占用），退出跑完后
-    // 才解锁并把卡片放回。这段是关键 —— 见 [overlayTransitionBusy] / [occupiedCardKey]
-    // 的注释：只有让「退场动画彻底结束」成为再开新详情的门槛，连续切换才不会留卡死态。
+    // 详情覆盖层的过渡生命周期：只负责上锁/解锁与排队。卡片可见性已由 selectedDetail
+    // 同帧同步驱动（见声明处注释），与详情 hero 完全对齐。
     LaunchedEffect(overlayDestination) {
         overlayTransitionBusy = true
-        val opening = overlayDestination
-        if (opening != null) {
-            occupiedCardKey = opening.key
+        if (overlayDestination != null) {
             // 进入过渡跑完（含 sharedElement morph 收尾）再解锁。
-            delay(MeloXMotion.PageEnterMillis.toLong() + OverlayTransitionSettleMillis)
+            delay(meloXSettledMillis(MeloXMotion.PageEnterMillis, OverlayTransitionSettleMillis))
         } else if (overlayDetail != null) {
-            // 退出过渡：occupiedCardKey 保持指向旧详情，动画结束后一并清空。
-            delay(MeloXMotion.PageExitMillis.toLong() + OverlayTransitionSettleMillis)
-            occupiedCardKey = null
+            // 退出过渡：详情内容（overlayDetail）保留到过渡跑完，退场期间详情子树仍在组合。
+            delay(meloXSettledMillis(MeloXMotion.PageExitMillis, OverlayTransitionSettleMillis))
             overlayDetail = null
         }
         // 被新的打开请求取消时停在 delay，不解锁、也不清空排队。这段自己跑完
@@ -670,7 +666,7 @@ fun SearchScreen(
                     recommendations = recommendations,
                     onPlaylist = { openDetail(SearchDetailDestination.Netease(it.asSearchItem())) },
                     sharedTransitionScope = searchSharedScope,
-                    selectedKey = occupiedCardKey,
+                    selectedKey = selectedDetail?.key,
                     onCategory = { category ->
                         if (category == "播客") {
                             subPageContent = SearchSubPage.Podcast
@@ -693,7 +689,7 @@ fun SearchScreen(
                     recommendations = providerRecommendations,
                     onPlaylist = { openDetail(SearchDetailDestination.Provider(ProviderSearchDestination.Playlist(it))) },
                     sharedTransitionScope = searchSharedScope,
-                    selectedKey = occupiedCardKey,
+                    selectedKey = selectedDetail?.key,
                 )
                 loading -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                     CircularProgressIndicator(color = SearchAccent)
@@ -729,13 +725,13 @@ fun SearchScreen(
                     values = providerPlaylists.map { ProviderSearchDestination.Playlist(it) },
                     onOpen = { openDetail(SearchDetailDestination.Provider(it)) },
                     sharedTransitionScope = searchSharedScope,
-                    selectedKey = occupiedCardKey,
+                    selectedKey = selectedDetail?.key,
                 )
                 source != MusicSource.Netease && kind == MeloXSearchKind.Albums -> ProviderSearchMediaResults(
                     values = providerAlbums.map { ProviderSearchDestination.Album(it) },
                     onOpen = { openDetail(SearchDetailDestination.Provider(it)) },
                     sharedTransitionScope = searchSharedScope,
-                    selectedKey = occupiedCardKey,
+                    selectedKey = selectedDetail?.key,
                 )
                 source != MusicSource.Netease && kind == MeloXSearchKind.Artists -> ProviderSearchMediaResults(
                     values = providerArtists.map { ProviderSearchDestination.Artist(it) },
@@ -751,7 +747,7 @@ fun SearchScreen(
                         }
                     },
                     sharedTransitionScope = searchSharedScope,
-                    selectedKey = occupiedCardKey,
+                    selectedKey = selectedDetail?.key,
                 )
             }
         }
@@ -780,7 +776,7 @@ fun SearchScreen(
                     onBack = { categoryTitle = null; error = null },
                     onPlaylist = { openDetail(SearchDetailDestination.Netease(it.asSearchItem())) },
                     sharedTransitionScope = searchSharedScope,
-                    selectedKey = occupiedCardKey,
+                    selectedKey = selectedDetail?.key,
                 )
                 is SearchSubPage.Detail -> SearchCollectionDetail(
                     destination = page.destination,
