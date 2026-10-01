@@ -274,6 +274,16 @@ private fun NeteaseHomeDataScreen(onOpenTool: (String) -> Unit) {
     var overlayTransitionBusy by remember { mutableStateOf(false) }
     var pendingCollection by remember { mutableStateOf<DiscoveryCollection?>(null) }
     var songList by remember { mutableStateOf<HomeSongList?>(null) }
+    // 内容与可见性分开持有（同 overlayCollection）：退出过渡期间 songList 已为 null，
+    // 但详情内容要留到过渡跑完。否则返回按钮一按就对着空 Box 播退出动画 → 直接消失
+    // （手势返回因为先跟手滑出，看不出这个问题）。
+    var overlaySongList by remember { mutableStateOf<HomeSongList?>(null) }
+    LaunchedEffect(songList) {
+        if (songList == null && overlaySongList != null) {
+            delay(meloXSettledMillis(MeloXMotion.PageExitMillis, DiscoveryOverlaySettleMillis))
+            overlaySongList = null
+        }
+    }
     var activeAction by remember { mutableStateOf<String?>(null) }
     var localRecommendations by remember { mutableStateOf(emptyList<com.lladlam.melox.core.recommendation.LocalRecommendationItem>()) }
     var localCandidates by remember { mutableStateOf(emptyList<MusicTrack>()) }
@@ -442,12 +452,14 @@ private fun NeteaseHomeDataScreen(onOpenTool: (String) -> Unit) {
                     }
                 }.onSuccess { songs ->
                     if (action in HomeSongListActions && songs.isNotEmpty()) {
-                        songList = HomeSongList(
+                        val list = HomeSongList(
                             title = action,
                             subtitle = context.getString(R.string.home_source_song_count, songs.size),
                             artworkUrl = songs.firstOrNull()?.artworkUrl,
                             songs = songs,
                         )
+                        overlaySongList = list
+                        songList = list
                     } else {
                         songs.firstOrNull()?.let {
                             PlaybackCommands.playQueue(context, songs, it.id, heartMode = action == "心动模式")
@@ -479,6 +491,8 @@ private fun NeteaseHomeDataScreen(onOpenTool: (String) -> Unit) {
         HomeOverlayPage(
             shown = selectedCollection != null,
             onBack = { selectedCollection = null },
+            // 封面是共享元素，跟手滑出会让封面一起飞出屏外再 morph 回来。
+            followPredictiveBack = false,
         ) {
             overlayCollection?.let { collection ->
                 DiscoveryCollectionDetail(
@@ -497,7 +511,7 @@ private fun NeteaseHomeDataScreen(onOpenTool: (String) -> Unit) {
             shown = songList != null,
             onBack = { songList = null },
         ) {
-            songList?.let { list ->
+            overlaySongList?.let { list ->
                 HomeSongListDetail(list = list, onBack = { songList = null })
             }
         }
@@ -510,6 +524,11 @@ private val HomeSongListActions = setOf("每日推荐", "热歌榜", "私人雷�
 private fun HomeOverlayPage(
     shown: Boolean,
     onBack: () -> Unit,
+    // 带共享元素的页面（歌单详情）关掉跟手位移：封面本身就是共享元素，跟着页面滑出
+    // 屏外后，提交时再 snap 回来 + morph，看起来像「封面飞出去再飞回原位」。这类页面
+    // 在提交后直接走 AnimatedVisibility 退出 + 共享元素 morph，与返回按钮完全一致。
+    // 没有共享元素的页面（每日推荐/热歌榜/私人雷达）保留跟手滑出，滑开时露出首页。
+    followPredictiveBack: Boolean = true,
     // 以 receiver 暴露 AnimatedVisibilityScope，让内部详情页能把封面
     // 接到同一个 SharedTransitionLayout 里的列表卡片上（一镜到底）。
     content: @Composable AnimatedVisibilityScope.() -> Unit,
@@ -523,15 +542,20 @@ private fun HomeOverlayPage(
     BackHandler(enabled = shown, onBack = onBack)
     PredictiveBackHandler(enabled = shown) {
         try {
-            it.collect { event -> progress.snapTo(event.progress) }
-            // 先把没有共享元素的页面滑出屏外再关闭。每日推荐、热歌榜、私人雷达
-            // 也走这里；如果先关闭，退出动画会把停在半路的页面留在首页上面。
-            // 关闭之后只把位移归零，给下一次进入用，不再补一段滑出。
-            progress.animateTo(1f, tween(160))
-            onBack()
-            progress.snapTo(0f)
+            it.collect { event -> if (followPredictiveBack) progress.snapTo(event.progress) }
+            if (followPredictiveBack) {
+                // 先把没有共享元素的页面滑出屏外再关闭。每日推荐、热歌榜、私人雷达
+                // 也走这里；如果先关闭，退出动画会把停在半路的页面留在首页上面。
+                // 关闭之后只把位移归零，给下一次进入用，不再补一段滑出。
+                progress.animateTo(1f, tween(160))
+                onBack()
+                progress.snapTo(0f)
+            } else {
+                // 共享元素页面：不跟手，直接关；退出动画自己会滑出并把封面 morph 回卡片。
+                onBack()
+            }
         } catch (_: CancellationException) {
-            progress.animateTo(0f, tween(160))
+            if (followPredictiveBack) progress.animateTo(0f, tween(160))
         }
     }
     AnimatedVisibility(
@@ -1011,6 +1035,8 @@ private fun NeteaseExploreDataScreen() {
         HomeOverlayPage(
             shown = selectedCollection != null,
             onBack = { selectedCollection = null },
+            // 封面是共享元素，跟手滑出会让封面一起飞出屏外再 morph 回来。
+            followPredictiveBack = false,
         ) {
             overlayCollection?.let { collection ->
                 DiscoveryCollectionDetail(
