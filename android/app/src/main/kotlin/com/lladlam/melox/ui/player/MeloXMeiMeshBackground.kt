@@ -19,7 +19,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.viewinterop.AndroidView
-import coil3.ImageLoader
+import coil3.SingletonImageLoader
 import coil3.request.ImageRequest
 import coil3.request.SuccessResult
 import coil3.request.allowHardware
@@ -512,7 +512,10 @@ internal fun MeloXMeiMeshBackdrop(
     LaunchedEffect(artworkUrl) {
         bitmap = withContext(Dispatchers.IO) {
             artworkUrl?.takeIf(String::isNotBlank)?.let { request ->
-                (ImageLoader(context).execute(
+                // Reuse the process-wide loader. Building a new ImageLoader per
+                // artwork gives every song its own memory cache and OkHttp pool
+                // that is never shut down.
+                (SingletonImageLoader.get(context).execute(
                     ImageRequest.Builder(context)
                         .data(request)
                         .size(256, 256)

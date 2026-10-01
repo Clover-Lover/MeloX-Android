@@ -138,7 +138,8 @@ internal class BottomBarToneState internal constructor() {
 
     internal fun release() {
         released = true
-        bitmap?.recycle()
+        // Do not recycle: a PixelCopy may still be writing into this bitmap on
+        // another thread. It is only 32x8 px, so let the GC reclaim it.
         bitmap = null
     }
 }
@@ -341,6 +342,10 @@ internal fun BottomBarToneState.darkness(systemDark: Boolean): Float {
 /** 对窗口做一次 PixelCopy，返回**线性光**平均亮度；失败返回 null。 */
 private suspend fun BottomBarToneState.capture(window: Window, rect: Rect): Float? =
     suspendCancellableCoroutine { cont ->
+        if (released) {
+            cont.resume(null)
+            return@suspendCancellableCoroutine
+        }
         val bmp = ensureBitmap()
         // ⚠ 用 suspendCancellableCoroutine，不是 suspendCoroutine：外层套了
         //   withTimeoutOrNull，超时会取消；若回调再来 resume 一次会直接抛
@@ -356,7 +361,7 @@ private suspend fun BottomBarToneState.capture(window: Window, rect: Rect): Floa
                 rect,
                 bmp,
                 { result ->
-                    if (cont.isActive) {
+                    if (cont.isActive && !bmp.isRecycled) {
                         cont.resume(
                             if (result == PixelCopy.SUCCESS) meanLinearLuminance(bmp) else null
                         )
@@ -369,7 +374,7 @@ private suspend fun BottomBarToneState.capture(window: Window, rect: Rect): Floa
             false
         }
         if (launched) {
-            cont.invokeOnCancellation { /* 位图由 release() 统一回收，这里不动 */ }
+            cont.invokeOnCancellation { /* 位图由 GC 回收，这里不动 */ }
         } else {
             cont.resume(null)
         }
