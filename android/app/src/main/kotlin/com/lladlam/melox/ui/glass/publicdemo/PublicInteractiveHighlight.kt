@@ -142,7 +142,11 @@ private suspend inline fun AwaitPointerEventScope.drag(
     while (true) {
         val change = awaitDragOrUp(pointer) ?: return null
         if (change.changedToUpIgnoreConsumed()) return change
-        if (change.isConsumed) return null
+        // ⚠ 不要像官方 DragGestureInspector 那样 `isConsumed → 退出`：
+        //   水珠上同一修饰符链里 `dampedDock.modifier` 在更内层、Main pass 先拿到事件
+        //   并 `change.consume()`；这里一退就是 onDragCancel → 高光被提前杀掉
+        //   （真机症状：按住有高光、手指一动就没）。
+        //   位移已被消费不影响本用途 —— 高光的 onDrag 只读绝对 position。
         onDrag(change)
         pointer = change.id
     }

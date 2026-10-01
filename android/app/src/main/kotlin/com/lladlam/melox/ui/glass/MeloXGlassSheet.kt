@@ -57,7 +57,10 @@ fun MeloXGlassSheet(
     }
     val requestDismiss = { onDismiss() }
     val dark = isMeloXDarkTheme()
-    val hasBackdrop = LocalMeloXBackdrop.current != null
+    // ⚠ 必须用门控判定，不能用 `LocalMeloXBackdrop.current != null`：后者在「无硬件加速」
+    //   时仍为 true ⇒ 会选半透明 tint 但一次玻璃都不画 ⇒ 模态下内容叠在
+    //   页面上不可读（正是下面注释要避免的那种情况）。
+    val hasBackdrop = meloXGlassAvailable()
     // Regular pages deliberately do not expose a recursive RenderNode
     // backdrop. In that safe mode the sheet still needs an opaque fallback;
     // otherwise the page underneath remains readable through the modal and
@@ -140,7 +143,10 @@ fun MeloXGlassDialog(
     }
     val requestDismiss = { onDismiss() }
     val dark = isMeloXDarkTheme()
-    val hasBackdrop = LocalMeloXBackdrop.current != null
+    // ⚠ 必须用门控判定，不能用 `LocalMeloXBackdrop.current != null`：后者在「无硬件加速」
+    //   时仍为 true ⇒ 会选半透明 tint 但一次玻璃都不画 ⇒ 模态下内容叠在
+    //   页面上不可读（正是下面注释要避免的那种情况）。
+    val hasBackdrop = meloXGlassAvailable()
     val dialogTint = when {
         hasBackdrop && dark -> Color.White.copy(alpha = 0.08f)
         hasBackdrop -> Color.White.copy(alpha = 0.34f)

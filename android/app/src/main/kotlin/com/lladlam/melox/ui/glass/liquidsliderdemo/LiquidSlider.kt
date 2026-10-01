@@ -36,6 +36,8 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.util.fastCoerceIn
 import androidx.compose.ui.util.fastRoundToInt
 import androidx.compose.ui.util.lerp
+import com.lladlam.melox.ui.glass.finiteOrZero
+import com.lladlam.melox.ui.glass.safeProgress
 import com.kyant.backdrop.Backdrop
 import com.kyant.backdrop.backdrops.layerBackdrop
 import com.kyant.backdrop.backdrops.rememberBackdrop
@@ -181,16 +183,23 @@ fun MeloXDemoLiquidSlider(
                     ),
                     shape = { Capsule() },
                     effects = {
-                        val progress = dampedDragAnimation.pressProgress
+                        val progress = safeProgress(dampedDragAnimation.pressProgress)
                         blur(8f.dp.toPx() * (1f - progress))
-                        lens(
-                            10f.dp.toPx() * progress,
-                            14f.dp.toPx() * progress,
-                            chromaticAberration = true
-                        )
+                        // ⚠ 静息（progress≈0）必须**整段跳过** lens：`lens(0, 0)` 会让
+                        //   shader 里 `circleMap(1.0 - -sd / refractionHeight)` 变成 0/0 ⇒ NaN
+                        //   ⇒ `content.eval(NaN)`（见 MeloXGlassSafety 顶部说明）。
+                        //   该动画的 press spec 是 `spring(1f, 1000f)`（临界阻尼），静息**恰好**
+                        //   落在 0，所以这是每帧都会命中的路径，不是理论问题。
+                        if (progress > 0.001f) {
+                            lens(
+                                10f.dp.toPx() * progress,
+                                14f.dp.toPx() * progress,
+                                chromaticAberration = true
+                            )
+                        }
                     },
                     highlight = {
-                        val progress = dampedDragAnimation.pressProgress
+                        val progress = safeProgress(dampedDragAnimation.pressProgress)
                         Highlight.Ambient.copy(
                             width = Highlight.Ambient.width / 1.5f,
                             blurRadius = Highlight.Ambient.blurRadius / 1.5f,
@@ -204,18 +213,21 @@ fun MeloXDemoLiquidSlider(
                         )
                     },
                     innerShadow = {
-                        val progress = dampedDragAnimation.pressProgress
+                        val progress = safeProgress(dampedDragAnimation.pressProgress)
                         InnerShadow(
                             radius = 4f.dp * progress,
                             alpha = progress
                         )
                     },
                     layerBlock = {
-                        scaleX = dampedDragAnimation.scaleX
-                        scaleY = dampedDragAnimation.scaleY
-                        val velocity = dampedDragAnimation.velocity / 10f
-                        scaleX /= 1f - (velocity * 0.75f).fastCoerceIn(-0.2f, 0.2f)
-                        scaleY *= 1f - (velocity * 0.25f).fastCoerceIn(-0.2f, 0.2f)
+                        // ⚠ 同 Switch 拇指：`fastCoerceIn` 对 NaN 不加防护（两个比较都为 false
+                        //   ⇒ 原样返回 NaN），NaN 会一路穿进 RenderNode 变换矩阵。
+                        //   源头洗 velocity + 出口兜输出，正常值恒等。
+                        val velocity = dampedDragAnimation.velocity.finiteOrZero() / 10f
+                        val widenDenom = 1f - (velocity * 0.75f).fastCoerceIn(-0.2f, 0.2f)
+                        val widenFactor = 1f - (velocity * 0.25f).fastCoerceIn(-0.2f, 0.2f)
+                        scaleX = (dampedDragAnimation.scaleX.finiteOrZero() / widenDenom).finiteOrZero()
+                        scaleY = (dampedDragAnimation.scaleY.finiteOrZero() * widenFactor).finiteOrZero()
                     },
                     onDrawSurface = {
                         val progress = dampedDragAnimation.pressProgress

@@ -146,7 +146,8 @@ private fun <T> MeloXPopupSelector(
     var opensAbove by remember { mutableStateOf(false) }
     var anchorSize by remember { mutableStateOf(IntSize.Zero) }
     val progress = remember { Animatable(0f) }
-    val backdrop = LocalMeloXBackdrop.current
+    // ⚠ 走门控入口，不要直接读 `LocalMeloXBackdrop.current`（见 `MeloXGlassSafety.kt` 说明）。
+    val backdrop = meloXGlassBackdrop()
 
     LaunchedEffect(expanded) {
         if (expanded) {
@@ -242,8 +243,17 @@ private fun MeloXPopupGlassMenu(
     val density = androidx.compose.ui.platform.LocalDensity.current
     val geometryProgress = progress.coerceIn(-.04f, 1.06f)
     val visualProgress = progress.coerceIn(0f, 1f)
-    val normalizedVelocity = (velocity / 18f).coerceIn(-1f, 1f)
-    val pulse = max(sin(PI.toFloat() * visualProgress), abs(normalizedVelocity) * .65f).coerceIn(0f, 1f)
+    // ⚠ `coerceIn` **不过滤 NaN**（`a < min` 与 `a > max` 同时为 false ⇒ 原样返回），
+    //   NaN 会一路穿到下面两处：①`lens(refractionHeight / refractionAmount)` 的 AGSL uniform；
+    //   ②`Highlight.copy(alpha)` → `HighlightNode` 里 `GraphicsLayer.setAlpha()`。
+    //   ①尤其危险：着色器的早退守卫是 `if (-sd >= refractionHeight)`，
+    //   与 NaN 比较**恒为 false** ⇒ 守卫永不生效 ⇒ 整片表面每个像素都执行到
+    //   `circleMap(1.0 - (-sd) / NaN)` ⇒ `content.eval(NaN 坐标)`（GLSL ES 未定义行为）。
+    //   所以这里沿用「源头洗 + 出口兜」：正常数值下 `finiteOrZero()` 恒等，观感零变化。
+    val normalizedVelocity = (velocity.finiteOrZero() / 18f).coerceIn(-1f, 1f)
+    val pulse = max(sin(PI.toFloat() * visualProgress), abs(normalizedVelocity) * .65f)
+        .coerceIn(0f, 1f)
+        .finiteOrZero()
     val collapsedWidth = with(density) { collapsedSize.width.toDp() }
     val collapsedHeight = with(density) { collapsedSize.height.toDp() }
     val menuWidth = 238.dp
