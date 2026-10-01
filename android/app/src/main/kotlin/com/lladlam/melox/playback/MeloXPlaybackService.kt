@@ -133,6 +133,7 @@ class MeloXPlaybackService : MediaSessionService() {
     private var mixPlan = MeloXAutoMixPlan(0L, 0L)
     private val mixEqualizerEnvelope = MeloXAutoMixEqualizerEnvelope()
     private var lastMaintenanceRealtimeMs = 0L
+    private var lastQueuePositionPersistRealtimeMs = 0L
     private var appliedAudioFocusPolicy: Boolean? = null
 
     private val audioAttributes = AudioAttributes.Builder()
@@ -331,6 +332,12 @@ class MeloXPlaybackService : MediaSessionService() {
                         updateAudioReactiveVisuals(active)
                     }
                     val now = SystemClock.elapsedRealtime()
+                    // Keep the resume position fresh so a crash (where onDestroy
+                    // never runs) still restores the right song and position.
+                    if (now - lastQueuePositionPersistRealtimeMs >= QUEUE_POSITION_PERSIST_INTERVAL_MS) {
+                        lastQueuePositionPersistRealtimeMs = now
+                        persistQueuePositionIfEnabled(active)
+                    }
                     if (now - lastMaintenanceRealtimeMs >= PLAYBACK_MAINTENANCE_INTERVAL_MS) {
                         lastMaintenanceRealtimeMs = now
                         if (!uiTransitionActive) {
@@ -1724,6 +1731,16 @@ class MeloXPlaybackService : MediaSessionService() {
         player?.let { MeloXPlaybackQueueStore.save(this, it) }
     }
 
+    private fun persistQueuePositionIfEnabled(active: ExoPlayer) {
+        if (!MeloXSettingsPreferences.boolean(this, "playback_save_queue", true)) return
+        if (active.mediaItemCount == 0) return
+        MeloXPlaybackQueueStore.savePosition(
+            this,
+            active.currentMediaItemIndex.coerceAtLeast(0),
+            active.currentPosition.coerceAtLeast(0L),
+        )
+    }
+
     private fun restorePersistedQueue(active: ExoPlayer) {
         if (!MeloXSettingsPreferences.boolean(this, "playback_save_queue", true)) return
         val saved = MeloXPlaybackQueueStore.read(this) ?: return
@@ -1743,6 +1760,7 @@ class MeloXPlaybackService : MediaSessionService() {
         const val AUTOPLAY_RETRY_MS = 15_000L
         const val PREFETCH_TRACK_COUNT = 3
         const val PLAYBACK_MAINTENANCE_INTERVAL_MS = 1_000L
+        const val QUEUE_POSITION_PERSIST_INTERVAL_MS = 2_000L
         const val AUTOMIX_ENVELOPE_INTERVAL_MS = 20L
         const val AUTOMIX_FAILURE_COOLDOWN_MS = 30_000L
         const val SMART_QUEUE_ANALYSIS_CONCURRENCY = 2
