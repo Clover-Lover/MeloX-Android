@@ -214,16 +214,19 @@ fun Modifier.meloXLiquidContentTransform(interaction: MeloXLiquidInteraction): M
     graphicsLayer {
         val controlHeight = size.height.coerceAtLeast(1f)
         val dragOffset = interaction.highlight.offset
-        val pressProgress = interaction.highlight.pressProgress
-        val baseScale = 1f + (4.dp.toPx() / controlHeight) * pressProgress
+        // ⚠ 这里写的每一个量最终都进 HWUI `RenderNode` 的变换矩阵（见 MeloXGlassSafety.kt）。
+        //   `pressProgress` 来自欠阻尼弹簧、区间约 [−0.16, 1.16] ⇒ 先 `safeProgress`；
+        //   `dragOffset` 与乘除结果再统一过 `finiteOrZero()`（正常值恒等，观感零变化）。
+        val pressProgress = safeProgress(interaction.highlight.pressProgress)
+        val baseScale = (1f + (4.dp.toPx() / controlHeight) * pressProgress).finiteOrZero()
         val maxOffset = size.minDimension.coerceAtLeast(1f)
-        translationX = maxOffset * tanh(0.05f * dragOffset.x / maxOffset)
-        translationY = maxOffset * tanh(0.05f * dragOffset.y / maxOffset)
+        translationX = (maxOffset * tanh(0.05f * dragOffset.x.finiteOrZero() / maxOffset)).finiteOrZero()
+        translationY = (maxOffset * tanh(0.05f * dragOffset.y.finiteOrZero() / maxOffset)).finiteOrZero()
         val maxDragScale = 4.dp.toPx() / controlHeight
-        val angle = atan2(dragOffset.y, dragOffset.x)
-        scaleX = baseScale + maxDragScale * abs(cos(angle) * dragOffset.x / size.maxDimension.coerceAtLeast(1f)) *
+        val angle = atan2(dragOffset.y.finiteOrZero(), dragOffset.x.finiteOrZero())
+        scaleX = baseScale + maxDragScale * abs(cos(angle) * dragOffset.x.finiteOrZero() / size.maxDimension.coerceAtLeast(1f)) *
             (size.width / controlHeight).fastCoerceAtMost(1f)
-        scaleY = baseScale + maxDragScale * abs(sin(angle) * dragOffset.y / size.maxDimension.coerceAtLeast(1f)) *
+        scaleY = baseScale + maxDragScale * abs(sin(angle) * dragOffset.y.finiteOrZero() / size.maxDimension.coerceAtLeast(1f)) *
             (controlHeight / size.width.coerceAtLeast(1f)).fastCoerceAtMost(1f)
     }
 
@@ -239,8 +242,10 @@ fun Modifier.meloXGlassSurface(
     dragOffset: Offset = Offset.Zero,
     spec: MeloXGlassSpec = MeloXGlassSpec.forMaterial(material),
 ): Modifier {
-    val backdrop = LocalMeloXBackdrop.current
+    val backdrop = meloXGlassBackdrop()
     val alphaScale = if (enabled) 1f else 0.48f
+    // ⚠ 按压全程一律走清洗后的 p（欠阻尼弹簧会过冲出 [0,1]，见 safeProgress 注释）。
+    val p = safeProgress(pressProgress)
     val isPlain = surfaceColor == Color.Transparent && tint == Color.Unspecified
     val dark = isMeloXDarkTheme()
     if (isPlain) return this
@@ -283,14 +288,14 @@ fun Modifier.meloXGlassSurface(
                 lens(
                     spec.lensRadius.toPx(),
                     spec.refractionHeight.toPx(),
-                    depthEffect = pressProgress > 0.01f,
+                    depthEffect = p > 0.01f,
                     chromaticAberration = true,
                 )
             }
         },
         highlight = {
             Highlight.Default.copy(
-                alpha = ((if (dark) 0.32f else 0.48f) + 0.30f * pressProgress)
+                alpha = ((if (dark) 0.32f else 0.48f) + 0.30f * p)
                     .coerceAtMost(1f),
             )
         },
@@ -298,27 +303,27 @@ fun Modifier.meloXGlassSurface(
             Shadow(
                 radius = 24.dp,
                 color = Color.Black.copy(alpha = 0.12f),
-                alpha = (0.08f + 0.22f * pressProgress) * if (enabled) 1f else 0.35f,
+                alpha = (0.08f + 0.22f * p) * if (enabled) 1f else 0.35f,
             )
         },
         innerShadow = {
             InnerShadow(
-                radius = 4.dp + 8.dp * pressProgress,
+                radius = 4.dp + 8.dp * p,
                 color = Color.Black.copy(alpha = 0.12f),
-                alpha = (0.10f + 0.30f * pressProgress) * if (enabled) 1f else 0.35f,
+                alpha = (0.10f + 0.30f * p) * if (enabled) 1f else 0.35f,
             )
         },
         layerBlock = {
             val controlHeight = size.height.coerceAtLeast(1f)
-            val scale = 1f + (4.dp.toPx() / controlHeight) * pressProgress
+            val scale = (1f + (4.dp.toPx() / controlHeight) * p).finiteOrZero()
             val maxOffset = size.minDimension.coerceAtLeast(1f)
-            translationX = maxOffset * tanh(0.05f * dragOffset.x / maxOffset)
-            translationY = maxOffset * tanh(0.05f * dragOffset.y / maxOffset)
+            translationX = (maxOffset * tanh(0.05f * dragOffset.x.finiteOrZero() / maxOffset)).finiteOrZero()
+            translationY = (maxOffset * tanh(0.05f * dragOffset.y.finiteOrZero() / maxOffset)).finiteOrZero()
             val maxDragScale = 4.dp.toPx() / controlHeight
-            val angle = atan2(dragOffset.y, dragOffset.x)
-            scaleX = scale + maxDragScale * abs(cos(angle) * dragOffset.x / size.maxDimension.coerceAtLeast(1f)) *
+            val angle = atan2(dragOffset.y.finiteOrZero(), dragOffset.x.finiteOrZero())
+            scaleX = scale + maxDragScale * abs(cos(angle) * dragOffset.x.finiteOrZero() / size.maxDimension.coerceAtLeast(1f)) *
                 (size.width / controlHeight).fastCoerceAtMost(1f)
-            scaleY = scale + maxDragScale * abs(sin(angle) * dragOffset.y / size.maxDimension.coerceAtLeast(1f)) *
+            scaleY = scale + maxDragScale * abs(sin(angle) * dragOffset.y.finiteOrZero() / size.maxDimension.coerceAtLeast(1f)) *
                 (controlHeight / size.width.coerceAtLeast(1f)).fastCoerceAtMost(1f)
         },
         onDrawSurface = {
@@ -326,8 +331,8 @@ fun Modifier.meloXGlassSurface(
                 Color.White.copy(alpha = if (dark) 0.045f else 0.12f),
                 blendMode = BlendMode.Screen,
             )
-            if (pressProgress > 0.001f) {
-                drawRect(Color.White.copy(alpha = 0.08f * pressProgress), blendMode = BlendMode.Plus)
+            if (p > 0.001f) {
+                drawRect(Color.White.copy(alpha = 0.08f * p), blendMode = BlendMode.Plus)
             }
             if (tint != Color.Unspecified && tint.alpha > 0.001f) {
                 drawRect(tint.copy(alpha = tint.alpha * alphaScale), blendMode = BlendMode.Hue)
@@ -350,7 +355,7 @@ fun Modifier.meloXBackdropBlur(
     blurRadius: Dp = 20.dp,
     surfaceColor: Color = Color.Transparent,
 ): Modifier {
-    val backdrop = LocalMeloXBackdrop.current
+    val backdrop = meloXGlassBackdrop()
     if (backdrop == null) return background(surfaceColor, shape)
     return drawBackdrop(
         backdrop = backdrop,
@@ -401,7 +406,7 @@ fun Modifier.meloXLiquidBottomBar(
     refractionHeight: Dp = 24.dp,
     exportedBackdrop: LayerBackdrop? = null,
 ): Modifier {
-    val backdrop = LocalMeloXBackdrop.current
+    val backdrop = meloXGlassBackdrop()
     if (backdrop == null) {
         // Flatten the requested translucent material over the current page
         // color. Raising a dark tint to a fixed 48% made light segmented
@@ -425,6 +430,10 @@ fun Modifier.meloXLiquidBottomBar(
     //   `isMeloXDarkTheme()`）。它外部看不见，是最容易漏的一处 —— 漏了的结果就是
     //   涂层已经在过渡、高光还停在旧档，观感上是「切换了一半」。
     val tone = bottomBarTone()
+    // ⚠ 底栏面板的按压来自 `PublicDampedDragAnimation.pressProgress`
+    //   （`spring(1f, 1000f)`，临界阻尼、静息恰 0、理论不过冲），
+    //   但仍统一过一遍 `safeProgress` —— 出口只有一处，比逐个调用点核对参数便宜。
+    val p = safeProgress(pressProgress)
     return drawBackdrop(
         backdrop = backdrop,
         shape = { shape },
@@ -441,25 +450,25 @@ fun Modifier.meloXLiquidBottomBar(
         },
         highlight = {
             Highlight.Default.copy(
-                alpha = (lerp(0.48f, 0.32f, tone) + 0.30f * pressProgress).coerceAtMost(1f)
+                alpha = (lerp(0.48f, 0.32f, tone) + 0.30f * p).coerceAtMost(1f)
             )
         },
         shadow = {
             Shadow(
                 radius = 24.dp,
                 color = Color.Black.copy(alpha = 0.12f),
-                alpha = 0.08f + 0.22f * pressProgress,
+                alpha = 0.08f + 0.22f * p,
             )
         },
         innerShadow = {
             InnerShadow(
-                radius = 4.dp + 8.dp * pressProgress,
+                radius = 4.dp + 8.dp * p,
                 color = Color.Black.copy(alpha = 0.12f),
-                alpha = 0.10f + 0.30f * pressProgress,
+                alpha = 0.10f + 0.30f * p,
             )
         },
         layerBlock = {
-            val scale = 1f + 16.dp.toPx() / size.width.coerceAtLeast(1f) * pressProgress
+            val scale = (1f + 16.dp.toPx() / size.width.coerceAtLeast(1f) * p).finiteOrZero()
             scaleX = scale
             scaleY = scale
         },
@@ -509,7 +518,9 @@ fun Modifier.meloXLiquidCaptureLayer(
     refractionHeight: Dp = 10.dp,
     refractionAmount: Dp = 28.dp,
 ): Modifier {
-    val backdrop = LocalMeloXBackdrop.current ?: return this
+    val backdrop = meloXGlassBackdrop() ?: return this
+    // ⚠ 底栏捕获层的按压同样过 `safeProgress`，理由见下面 lens 的零值门。
+    val p = safeProgress(pressProgress)
     if (MeloXSettingsRuntime.frostedGlassEnabled) {
         return drawBackdrop(
             backdrop = backdrop,
@@ -525,7 +536,6 @@ fun Modifier.meloXLiquidCaptureLayer(
         backdrop = backdrop,
         shape = { shape },
         effects = {
-            val progress = pressProgress
             vibrancy()
             // ── 逐项照搬 kyant0 官方 `LiquidBottomTabs` 捕获层（2026-09-25）────────
             //   官方源 `app/src/commonMain/.../components/LiquidBottomTabs.kt` 第 2 层：
@@ -536,9 +546,20 @@ fun Modifier.meloXLiquidCaptureLayer(
             //     // ← 没有 shadow、没有 innerShadow
             // blur 与面板同为官方 8dp。两处必须一起改。
             blur(8.dp.toPx())
-            lens(24.dp.toPx() * progress, 24.dp.toPx() * progress)
+            // ⚠ **静息（p≈0）必须整段跳过 lens，不能传 lens(0, 0)**。
+            //   AGSL 里：`if (-sd >= refractionHeight) return content.eval(coord);`
+            //   refractionHeight = 0 时，形状内部（sd ≤ 0）全部提前返回 —— 但**抗锯齿边缘
+            //   那些 sd > 0 的像素会落入下一行**：
+            //     `float d = circleMap(1.0 - -sd / refractionHeight) * refractionAmount;`
+            //   ⇒ 除以 0 ⇒ ±Inf ⇒ `sqrt(1 - Inf²)` ⇒ NaN ⇒ `content.eval(NaN)`，
+            //   GLSL ES 下采样 NaN 坐标行为未定义（Adreno 上碰巧无害，Mali/老驱动可能花屏
+            //   甚至触发 GPU fault）。
+            //   跳过 lens 的输出与「提前返回」逐像素相同 —— 折痕本来就只在按压时出现。
+            if (p > 0.001f) {
+                lens(24.dp.toPx() * p, 24.dp.toPx() * p)
+            }
         },
-        highlight = { Highlight.Default.copy(alpha = pressProgress) },
+        highlight = { Highlight.Default.copy(alpha = p) },
         // 官方/BiliNext 的捕获层都没有这两个 —— 见上面注释 ②③。
         shadow = null,
         innerShadow = null,
@@ -558,7 +579,7 @@ fun Modifier.meloXLiquidTabSelection(
     layerBlock: (GraphicsLayerScope.() -> Unit)? = null,
 ): Modifier {
     if (!selected) return this
-    val backdrop = LocalMeloXBackdrop.current
+    val backdrop = meloXGlassBackdrop()
     if (backdrop == null) {
         return background(tint.copy(alpha = maxOf(tint.alpha, 0.36f)), shape)
     }
@@ -602,6 +623,8 @@ fun Modifier.meloXLiquidTabSelection(
     // 静息态轮廓光下限：与胶囊 L1 面板的静息 highlight 同口径
     // （`meloXLiquidBottomBar` 里是恒定的 `lerp(0.48f, 0.32f, tone)`）。
     val restRim = lerp(0.48f, 0.32f, tone)
+    // ⚠ 水珠的 press spec 是临界阻尼、静息恰 0；这里统一清洗只为「出口唯一」。
+    val p = safeProgress(pressProgress)
     return drawBackdrop(
         backdrop = selectionBackdrop,
         shape = { shape },
@@ -616,11 +639,16 @@ fun Modifier.meloXLiquidTabSelection(
             //   本函数拿不到水珠高度（modifier 里无 size），故用官方基准 56dp 与 MeloX
             //   展开态 49dp 的比值作为固定系数；`DropletHeight` 若再改，改这一个常量。
             val dropletLensScale = MeloXDropletLensScale
-            lens(
-                refractionHeight = 10.dp.toPx() * pressProgress * dropletLensScale,
-                refractionAmount = 14.dp.toPx() * pressProgress * dropletLensScale,
-                chromaticAberration = true,
-            )
+            // ⚠ 同 `meloXLiquidCaptureLayer`：静息（p≈0）**整段跳过**，不传 lens(0, 0)。
+            //   这里还是带色散的 `RefractionWithDispersion` shader（uniform 更多），
+            //   除零产生的 NaN 波及面比普通 lens 更大。跳过后的输出与原「提前返回」一致。
+            if (p > 0.001f) {
+                lens(
+                    refractionHeight = 10.dp.toPx() * p * dropletLensScale,
+                    refractionAmount = 14.dp.toPx() * p * dropletLensScale,
+                    chromaticAberration = true,
+                )
+            }
         },
         // ── 静息态 rim：不再全灭（2026-09-25 v0.10.7，用户反馈「静息指示器比胶囊通透、像挖了个洞」）
         //
@@ -634,16 +662,30 @@ fun Modifier.meloXLiquidTabSelection(
         //
         //   三项各给一个静息下限，再按 p 插回官方值 —— **p=1 时与官方逐字一致**，
         //   按压态的折射 / 缩放 / 折痕全部不变（不破坏下面「缩放不溢出折射带」那条约束）。
-        highlight = { Highlight.Default.copy(alpha = lerp(restRim, 1f, pressProgress)) },
+        highlight = { Highlight.Default.copy(alpha = lerp(restRim, 1f, p)) },
         // 保留库默认 offset / radius / color（见上方教训），只加静息下限。
-        shadow = { Shadow(alpha = lerp(MeloXDropletRestShadow, 1f, pressProgress)) },
+        shadow = { Shadow(alpha = lerp(MeloXDropletRestShadow, 1f, p)) },
         innerShadow = {
             InnerShadow(
-                radius = 4.dp + 4.dp * pressProgress,    // 静息 4dp → 按压 8dp（官方 8dp·p）
-                alpha = lerp(MeloXDropletRestInnerShadow, 1f, pressProgress),
+                radius = 4.dp + 4.dp * p,    // 静息 4dp → 按压 8dp（官方 8dp·p）
+                alpha = lerp(MeloXDropletRestInnerShadow, 1f, p),
             )
         },
-        layerBlock = layerBlock,
+        // ⚠ 调用方注入的是一段**裸变换 lambda**（本项目的调用点里含 `velocity` 除法、
+        //   弹簧 scale 等）。这些值最终写进 HWUI `RenderNode` 的变换矩阵：一旦是
+        //   NaN / ±Inf，矩阵不可逆、绘制行为未定义 —— 这是「能跑玻璃的机型上因为
+        //   **自身数值**出问题」的典型入口。
+        //   在**唯一的写出口**统一清洗；正常值恒等，观感零变化。
+        layerBlock = layerBlock?.let { userBlock ->
+            {
+                userBlock(this)
+                scaleX = scaleX.finiteOrZero()
+                scaleY = scaleY.finiteOrZero()
+                translationX = translationX.finiteOrZero()
+                translationY = translationY.finiteOrZero()
+                alpha = alpha.finiteOrZero()
+            }
+        },
         onDrawSurface = {
             // 官方口径：按压时选中涂层淡出 + 极淡黑色叠加。
             drawRect(
@@ -652,9 +694,9 @@ fun Modifier.meloXLiquidTabSelection(
                     Color.White.copy(0.1f),
                     tone,
                 ),
-                alpha = 1f - pressProgress,
+                alpha = 1f - p,
             )
-            drawRect(Color.Black.copy(alpha = 0.03f * pressProgress))
+            drawRect(Color.Black.copy(alpha = 0.03f * p))
         },
     )
 }

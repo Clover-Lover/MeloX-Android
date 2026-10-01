@@ -1172,7 +1172,16 @@ private fun MeloXBottomChrome(
                 // ★ 核心恒等式：水珠与 Layer 2 **等高**，两者都比 Layer 1 矮 8dp
                 //   （BiliNext：L1=55dp / L2=DropletHeight=47dp / L3=47dp）
                 val dropletHeight = (navHeight - 8.dp).coerceAtLeast(1.dp)
-                val dropletWidth = tabWidth * 1.15f + 2.dp
+                // ⚠ `dropletWidth` 必须夹取，`dropletHeight` 同理（上面已夹）。
+                //   `navWidth` 是**不夹取的弹簧**（见 `lerpDpBouncy` 的注释），收缩/回弹过冲的
+                //   某一帧会跌破 `compactSize`(48dp)；而 `tabWidth = (navWidth − 20dp)/tabCount`
+                //   在 navWidth < 20dp 时变负 ⇒ `dropletWidth` 跟着变 0 / 负。
+                //   水珠是 `drawBackdrop` 节点，0 或负尺寸会让 `GraphicsLayer.record()` 拿到
+                //   空/非法尺寸并在 draw 阶段直接抛（不在任何 try/catch 内）。
+                //   360dp 宽 / 固定 4 tab 过冲后仍为正所以不触发；
+                //   **窄屏（320~340dp）、折叠屏外屏、开「显示大小」放大**的机型会。
+                //   夹到 1.dp 只在退化帧生效，正常区间数值完全不变。
+                val dropletWidth = (tabWidth * 1.15f + 2.dp).coerceAtLeast(1.dp)
 
                 val selectedIndex = primaryTabs.indexOfFirst { it.first == selectedTab }
                 val dockExpanded = progress < 0.56f
