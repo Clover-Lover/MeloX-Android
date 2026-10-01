@@ -245,7 +245,8 @@ fun MeloXGlassToggle(
     }
 
     val trackBackdrop = rememberLayerBackdrop()
-    val pageBackdrop = LocalMeloXBackdrop.current
+    // ⚠ 走门控入口，不要直接读 `LocalMeloXBackdrop.current`（见 `MeloXGlassSafety.kt` 说明）。
+    val pageBackdrop = meloXGlassBackdrop()
     Box(
         modifier = modifier
             .width(64.dp)
@@ -282,28 +283,40 @@ fun MeloXGlassToggle(
                             backdrop = rememberCombinedBackdrop(pageBackdrop, trackBackdrop),
                             shape = { Capsule() },
                             effects = {
-                                val p = animation.pressProgress
+                                val p = safeProgress(animation.pressProgress)
                                 blur(8.dp.toPx() * (1f - p))
-                                lens(5.dp.toPx() * p, 10.dp.toPx() * p, chromaticAberration = true)
+                                // ⚠ 静息（p≈0）**整段跳过** lens：H=0 时 shader 里
+                                //   `circleMap(1.0 - -sd / refractionHeight)` 是 0/0 ⇒ NaN
+                                //   ⇒ `content.eval(NaN)`（见 MeloXGlassSafety 顶部说明）。
+                                if (p > 0.001f) {
+                                    lens(5.dp.toPx() * p, 10.dp.toPx() * p, chromaticAberration = true)
+                                }
                             },
                             highlight = {
                                 Highlight.Ambient.copy(
                                     width = Highlight.Ambient.width / 1.5f,
                                     blurRadius = Highlight.Ambient.blurRadius / 1.5f,
-                                    alpha = animation.pressProgress,
+                                    alpha = safeProgress(animation.pressProgress),
                                 )
                             },
                             shadow = { Shadow(radius = 4.dp, color = Color.Black.copy(alpha = 0.05f)) },
-                            innerShadow = { InnerShadow(radius = 4.dp * animation.pressProgress, alpha = animation.pressProgress) },
+                            innerShadow = {
+                                val p = safeProgress(animation.pressProgress)
+                                InnerShadow(radius = 4.dp * p, alpha = p)
+                            },
                             layerBlock = {
-                                scaleX = animation.scaleX
-                                scaleY = animation.scaleY
-                                val velocity = animation.velocity / 50f
-                                scaleX /= 1f - (velocity * 0.75f).coerceIn(-0.2f, 0.2f)
-                                scaleY *= 1f - (velocity * 0.25f).coerceIn(-0.2f, 0.2f)
+                                // ⚠ 这几个量会直接进 HWUI `RenderNode` 的变换矩阵，而
+                                //   **`coerceIn` 对 NaN 不加防护**（`a < min` 与 `a > max` 同时为 false
+                                //   ⇒ 原样返回 NaN），NaN 一旦进矩阵，拍平后不可逆、绘制结果未定义。
+                                //   所以在**源头**先洗 velocity，出口再兜一次输出（正常值恒等，观感零变化）。
+                                val velocity = animation.velocity.finiteOrZero() / 50f
+                                val widenDenom = 1f - (velocity * 0.75f).coerceIn(-0.2f, 0.2f)
+                                val widenFactor = 1f - (velocity * 0.25f).coerceIn(-0.2f, 0.2f)
+                                scaleX = (animation.scaleX.finiteOrZero() / widenDenom).finiteOrZero()
+                                scaleY = (animation.scaleY.finiteOrZero() * widenFactor).finiteOrZero()
                                 alpha = if (enabled) 1f else 0.45f
                             },
-                            onDrawSurface = { drawRect(Color.White.copy(alpha = 1f - animation.pressProgress)) },
+                            onDrawSurface = { drawRect(Color.White.copy(alpha = 1f - safeProgress(animation.pressProgress))) },
                         )
                     } else {
                         Modifier

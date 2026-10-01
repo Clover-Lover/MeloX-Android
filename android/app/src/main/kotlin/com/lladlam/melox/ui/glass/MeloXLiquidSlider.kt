@@ -67,7 +67,8 @@ fun MeloXLiquidSlider(
             true
         }
     }
-    val backdrop = LocalMeloXBackdrop.current
+    // ⚠ 走门控入口，不要直接读 `LocalMeloXBackdrop.current`（见 `MeloXGlassSafety.kt` 说明）。
+    val backdrop = meloXGlassBackdrop()
     if (backdrop == null || MeloXSettingsRuntime.frostedGlassEnabled) {
         Slider(
             value = transientValue,

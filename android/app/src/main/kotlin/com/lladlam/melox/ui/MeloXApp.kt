@@ -121,7 +121,6 @@ import com.lladlam.melox.core.music.provider.MusicProviderSelectionStore
 import com.lladlam.melox.ui.account.NeteaseLoginScreen
 import com.lladlam.melox.ui.account.MeloXAccountActivity
 import com.kyant.backdrop.backdrops.layerBackdrop
-import com.kyant.backdrop.backdrops.rememberCombinedBackdrop
 import com.kyant.backdrop.backdrops.rememberLayerBackdrop
 import com.kyant.shapes.Capsule
 import com.lladlam.melox.ui.library.LibraryScreen
@@ -148,10 +147,10 @@ import com.lladlam.melox.ui.glass.MeloXGlassDialog
 import com.lladlam.melox.ui.glass.MeloXGlassButton
 import com.lladlam.melox.ui.glass.MeloXGlassButtonStyle
 import com.lladlam.melox.ui.theme.isMeloXDarkTheme
+import com.lladlam.melox.ui.animation.BottomBarCollapseSpec
+import com.lladlam.melox.ui.animation.BottomBarExpandSpec
 import com.lladlam.melox.ui.animation.MeloXSprings
 import com.lladlam.melox.ui.animation.NavExpandLeftShare
-import com.lladlam.melox.ui.animation.bottomBarOvershootLimit
-import com.lladlam.melox.ui.animation.bottomBarSpring
 import com.lladlam.melox.ui.animation.meloXContentEnter
 import com.lladlam.melox.ui.animation.meloXContentExit
 import com.lladlam.melox.ui.animation.sprungFrac
@@ -953,7 +952,7 @@ private val ChromeExpandedSize = 57.dp
 /** 收缩态下底栏 nav 胶囊的高度与搜索键边长。 */
 private val ChromeCompactSize = 46.dp
 
-/** 收缩态胶囊宽度。和 [MeloXBottomChrome] 里的 compact 宽度必须同源，弹簧行程才对得上。 */
+/** 收缩态胶囊宽度。和 [MeloXBottomChrome] 里的 compact 宽度必须同源。 */
 private val ChromeCompactWidth = 48.dp
 
 private val ChromeHorizontalMargin = 12.dp
@@ -980,35 +979,24 @@ private fun MeloXBottomChrome(
 ) {
     val tabsBackdrop = rememberLayerBackdrop()
     val dockScope = rememberCoroutineScope()
-    // 行程 = 展开胶囊宽 − 收缩胶囊宽。边距、缝、两侧尺寸与下面 BoxWithConstraints 同一套，
-    // 这样旋转或分屏改了窗口宽度后，下一次展开/收缩用的是这条宽度上的过冲，而不是 360dp 的比例。
-    val travelDp = (
-        LocalConfiguration.current.screenWidthDp -
-            ChromeHorizontalMargin.value * 2f -
-            ChromeSearchGap.value -
-            ChromeExpandedSize.value -
-            ChromeCompactWidth.value
-        ).coerceAtLeast(48f)
-    val expandOvershootDp = MeloXSprings.BottomBarExpandRightBudgetDp / (1f - NavExpandLeftShare)
-    val collapseOvershootDp = MeloXSprings.BottomBarCollapseOvershootDp
     val rawProgress by animateFloatAsState(
         targetValue = if (minimized) 1f else 0f,
-        // 展开朝搜索键长大，过冲停在右缘预算；收缩四周空出来，保住约 10.3dp 的回弹。
-        // 两边都按上面的 travelDp 反推 bounce。target 与 spec 同一帧算，方向就是 target 本身。
-        animationSpec = bottomBarSpring(
-            overshootDp = if (minimized) collapseOvershootDp else expandOvershootDp,
-            travelDp = travelDp,
-        ),
+        // 展开 / 收缩各用**一条完整弹簧**（方向不同、手感不同）：
+        //   · 展开 bounce 0.245 → ζ=0.755，过冲 2.68% → 外扩 6.02dp（左 2.01 / 右 4.01dp，
+        //     与搜索键的 7dp 缝留 3.00dp 视觉余量）—— 空间受限，所以收着弹、且**偏右**落；
+        //   · 收缩 bounce 0.300 → ζ=0.700，过冲 4.60% → 10.30dp —— 四周空出来了，放开弹。
+        // ⚠ 别让两个方向共用 spec：共用时保护邻居只剩「对展开方向事后压缩」一条路，
+        //   而压缩后的曲线不再是弹簧（阻尼包络仍是 0.30 的），手感与收缩方向不对等。
+        //   target 与 spec 在同一帧一起算 —— 方向就是 targetValue 本身。
+        animationSpec = if (minimized) BottomBarCollapseSpec else BottomBarExpandSpec,
         label = "melox-tab-minimize-progress",
     )
     // 语义值（alpha / 图层门控 / 选中态判定）必须夹在 [0,1]，否则负 alpha 会炸。
     val progress = rawProgress.coerceIn(0f, 1f)
 
-    // 几何值 = 弹簧本身。限幅盖住这次行程上较大的那侧过冲，避免把峰值削平，也避免异常 bounce 把布局撑爆。
-    val bounceFrac = sprungFrac(
-        rawProgress,
-        bottomBarOvershootLimit(maxOf(expandOvershootDp, collapseOvershootDp), travelDp),
-    )
+    // 几何值 = 弹簧本身（带符号限幅）。两侧对称、不过任何窗口 —— 详见 sprungFrac 注释：
+    // 旧的 [0.20, 1.00] 窗口在展开方向把几何钉死在弹簧峰值速度处，随后空转 246ms。
+    val bounceFrac = sprungFrac(rawProgress)
 
     val labelStage = smoothStep(progress, 0.00f, 0.32f)   // alpha 用，保持夹住
     val dropStage = smoothStep(progress, 0.78f, 1.00f)    // 容器高度，不参与过冲
@@ -1054,14 +1042,18 @@ private fun MeloXBottomChrome(
             val horizontalMargin = ChromeHorizontalMargin
             val compactSize = ChromeCompactWidth
             // nav 胶囊右缘 ↔ 搜索键左缘的固有间隙（展开态）。
-            // 官方截图实测 = **10px = 7.12dp**，取 7dp。右缘可用外扩 = 7 − 3 = 4dp，
-            // 总外扩按 NavExpandLeftShare 反推，bounce 再按当次行程算，不写死 0.245。
+            // 官方截图实测 = **10px = 7.12dp**（rim 峰法：nav 右缘 472 → 搜索键左缘 483，
+            // 阈值 140~205 全区间稳定），取 7dp。
+            // ⚠ 这个缝同时是展开方向弹簧的约束：它定出右缘可用外扩 = 7 − 3（视觉余量）= 4dp，
+            //   再按 NavExpandLeftShare(左1:右2) 反推出总外扩 6dp 与
+            //   MeloXSprings.BottomBarExpandBounce 0.245。改这个值必须回头重算那个常数。
             val searchGap = ChromeSearchGap
             val compactGap = 8.dp
             val expandedNavWidth =
                 maxWidth - horizontalMargin * 2 - searchGap - ChromeExpandedSize
-            // 宽度就是弹簧本身：lerpDpBouncy 不夹取。展开过冲停在右缘 4dp 预算
-            // （总外扩约 6dp），bounce 按当次行程反推，不再按 360dp 写死。
+            // 宽度就是弹簧本身：lerpDpBouncy 不夹取，展开方向 f<0 会让胶囊长到
+            // 272 + 6.02 = 278.02dp —— **不需要按预算压缩、也不需要限幅**，因为展开那条
+            // 弹簧（MeloXSprings.BottomBarExpandBounce）本来就是照着这点余地定出来的。
             val navWidth = lerpDpBouncy(expandedNavWidth, compactSize, bounceFrac)
             // 外扩 = 胶囊变大，多出来的宽度往哪边落由 NavExpandLeftShare 决定：
             // 现取 **左 1 : 右 2（偏右）** —— 右侧固有缝只有 7dp，那点余量必须花在
@@ -1172,7 +1164,26 @@ private fun MeloXBottomChrome(
                 // ★ 核心恒等式：水珠与 Layer 2 **等高**，两者都比 Layer 1 矮 8dp
                 //   （BiliNext：L1=55dp / L2=DropletHeight=47dp / L3=47dp）
                 val dropletHeight = (navHeight - 8.dp).coerceAtLeast(1.dp)
-                val dropletWidth = tabWidth * 1.15f + 2.dp
+                // ⚠ `dropletWidth` 必须夹取，`dropletHeight` 同理（上面已夹）。
+                //   `navWidth` 是**不夹取的弹簧**（见 `lerpDpBouncy` 的注释），收缩/回弹过冲的
+                //   某一帧会跌破 `compactSize`(48dp)；而 `tabWidth = (navWidth − 20dp)/tabCount`
+                //   在 navWidth < 20dp 时变负 ⇒ `dropletWidth` 跟着变 0 / 负。
+                //   水珠是 `drawBackdrop` 节点，0 或负尺寸会让 `GraphicsLayer.record()` 拿到
+                //   空/非法尺寸并在 draw 阶段直接抛（不在任何 try/catch 内）。
+                //   360dp 宽 / 固定 4 tab 过冲后仍为正所以不触发；
+                //   **窄屏（320~340dp）、折叠屏外屏、开「显示大小」放大**的机型会。
+                //   夹到 1.dp 只在退化帧生效，正常区间数值完全不变。
+                // ★ 边缘 inset 约束：水珠左右必须离胶囊外缘 ≥ `capsuleEdgeInset`，
+                //   否则 2-tab 服务 / 横屏（tabWidth 变大）时 `tabWidth*1.15+2` 会超出胶囊。
+                //   几何（value=0 时 left = edgePadding + 0.5·tabWidth − width/2）：
+                //     left ≥ capsuleEdgeInset ⇒ width ≤ tabWidth + 2·(edgePadding − capsuleEdgeInset)
+                //   `coerceAtMost` 只在会溢出时收缩；正常 4-tab 竖屏不触发，观感零变化。
+                //   capsuleEdgeInset=4dp 与上下 inset（(navHeight−dropletHeight)/2=4dp）严格一致。
+                val capsuleEdgeInset = 4.dp
+                val edgePadding = 10.dp
+                val dropletWidth = (tabWidth * 1.15f + 2.dp)
+                    .coerceAtMost(tabWidth + (edgePadding - capsuleEdgeInset) * 2f)
+                    .coerceAtLeast(1.dp)
 
                 val selectedIndex = primaryTabs.indexOfFirst { it.first == selectedTab }
                 val dockExpanded = progress < 0.56f
@@ -1189,6 +1200,8 @@ private fun MeloXBottomChrome(
                 //   启动在首页(0) ⇒ 拖动指示器回首页时 `0 != 0` 为假 ⇒ **不触发切换**
                 //   （真机症状：「拖到首页 tab 没反应，只有点击才行」）。
                 val currentSelectedIndex by rememberUpdatedState(selectedIndex)
+                // onTap 里要把「水珠局部坐标」换算回 tab 下标，需要水珠宽度（见 onTap 注释）。
+                val currentDropletWidthPx by rememberUpdatedState(with(density) { dropletWidth.toPx() })
 
                 // BiliNext L158-166 面板 recoil：拖动时整条面板轻微反向偏移
                 val panelOffsetAnim = remember { Animatable(0f) }
@@ -1213,8 +1226,13 @@ private fun MeloXBottomChrome(
                         // BiliNext L185：pressedScale = 78/56
                         pressedScale = 78f / 56f,
                         onTap = { position ->
-                            // BiliNext：索引 = 落点落在哪一格（tabWidth 等宽）
-                            val index = ((position.x - currentTabWidthPx / 2f) / currentTabWidthPx)
+                            // ⚠ position.x 是**水珠局部**坐标（手势挂在 L3 水珠 Box 上，
+                            //   宽仅 ~1.15 个 tab）。旧算法把它当面板坐标直接除 tabWidthPx
+                            //   ⇒ 恒落在 0/1 ⇒「点水珠盖着的 tab 必跳首页」。
+                            //   换算：水珠中心当前停在 value 格，落点 = value + 局部位移/tabWidth。
+                            val index = (value +
+                                (position.x - currentDropletWidthPx / 2f) /
+                                currentTabWidthPx.coerceAtLeast(1f))
                                 .roundToInt()
                                 .coerceIn(0, tabCount - 1)
                             if (currentProgress < 0.56f) {
@@ -1249,10 +1267,18 @@ private fun MeloXBottomChrome(
                         },
                     )
                 }
-                LaunchedEffect(selectedIndex, dockExpanded) {
+                // 「呼出」判定：上一个选中是搜索 ⇒ 这次是从搜索返回，水珠要 Q 弹落格
+                // （animateToValueBouncy 带过冲）；普通 tab 切换 / 拖拽回位仍走临界阻尼。
+                var prevSelectedTab by remember { mutableStateOf(selectedTab) }
+                LaunchedEffect(selectedIndex, dockExpanded, selectedTab) {
                     if (dockExpanded && selectedIndex >= 0) {
-                        dampedDock.animateToValue(selectedIndex.toFloat())
+                        if (prevSelectedTab == AppTab.Search && selectedTab != AppTab.Search) {
+                            dampedDock.animateToValueBouncy(selectedIndex.toFloat())
+                        } else {
+                            dampedDock.animateToValue(selectedIndex.toFloat())
+                        }
                     }
+                    prevSelectedTab = selectedTab
                 }
                 val dockHighlight = remember(dockScope, dampedDock) {
                     PublicInteractiveHighlight(
@@ -1291,7 +1317,10 @@ private fun MeloXBottomChrome(
                             shape = navShape,
                             tint = bottomLiquidGlassTint(),
                             surfaceColor = bottomGlassSurfaceColor(),
-                            pressProgress = 0f,
+                            // 官方 LiquidBottomTabs L174-179：面板随水珠按压整体膨胀
+                            // （scale = 1 + 16dp/width · p）。原先写死 0f ⇒ 长按完全没有反馈：
+                            // 指示器有高光、底栏却纹丝不动，读起来像「按压没生效」。
+                            pressProgress = dampedDock.pressProgress,
                         )
                         .then(dockHighlight.modifier)
                         .height(navHeight)
@@ -1314,6 +1343,12 @@ private fun MeloXBottomChrome(
                                 // 强调色只来自 L2 捕获层透出（`colorFilterTint = null` ⇒
                                 // 这里的 `selected` 已无着色作用，仅用于关掉点击后的 shape 语义）。
                                 selected = false,
+                                // ⚠ **毛玻璃模式的红色唯一来源**：毛玻璃下 L3 水珠整段不挂
+                                //   （见下面 `if (indicatorAlpha > 0.001f && !frostedGlass)`），
+                                //   L2 那张「全染强调色」的捕获层也就无从被采样 ⇒ 强调色彻底失去出口，
+                                //   选中 tab 会退化成和未选中完全一样。⇒ 让 L1 自己上色。
+                                //   与 `selected` 解耦的原因见 `RootTabButton` 的参数注释。
+                                selectedTint = frostedGlass && tab == selectedTab,
                                 labelAlpha = labelAlpha,
                                 interactive = dockExpanded,
                                 onClick = { onSelect(tab) },
@@ -1327,6 +1362,13 @@ private fun MeloXBottomChrome(
                 //   居中、红色、25dp。`expandedLayerAlpha`/`compactLayerAlpha` 是一条交叉淡入
                 //   淡出（0.43~0.72 淡出旧层 / 0.52~0.82 淡入新层），中间有重叠区，避免闪空。
                 if (compactLayerAlpha > 0.001f) {
+                    // ⚠ 收缩态「当前选中」图标：选中搜索时搜索键是独立的右侧按钮，
+                    //   左侧收缩胶囊没有搜索格可显示 ⇒ 默认回落首页房子图标（与下面
+                    //   「选搜索时左侧指示器消失」同一个语义：搜索不算左侧 nav 的一员）。
+                    //   选搜索时图标**不着红色** —— 红色是「左侧 nav 当前选中」的语义，
+                    //   回落的房子只是占位，用未激活色（与右侧搜索键未选中态同口径）。
+                    val compactGlyph =
+                        if (selectedTab == AppTab.Search) RootGlyph.Home else selectedTab.rootGlyph()
                     // ⚠ 收缩态点击展开（2026-09-25 修 bug）：
                     //   展开的手势只挂在 L3 水珠上（dampedDock.modifier @ L1404），而水珠在收缩态
                     //   被定位到胶囊最左缘（(value+0.5)*tabWidth，tabWidth 仅 7dp），并不在用户看到的
@@ -1351,10 +1393,14 @@ private fun MeloXBottomChrome(
                         contentAlignment = Alignment.Center,
                     ) {
                         RootGlyphIcon(
-                            glyph = selectedTab.rootGlyph(),
+                            glyph = compactGlyph,
                             modifier = Modifier.size(25.dp),
-                            color = MeloXSystemColors.Red,
-                            selected = true,
+                            color = if (selectedTab == AppTab.Search) {
+                                MaterialTheme.colorScheme.onSurface
+                            } else {
+                                MeloXSystemColors.Red
+                            },
+                            selected = selectedTab != AppTab.Search,
                         )
                     }
                 }
@@ -1400,18 +1446,20 @@ private fun MeloXBottomChrome(
 
                 // ══ Layer 3：水珠指示器（BiliNext 原样，**缩放真的生效**）════════
                 // BiliNext L444-448：alpha 走弹簧（不是二值开关），退出搜索时同步淡出
+                // ⚠ 选中搜索键时左侧指示器消失：搜索不在 primaryTabs 里、没有对应水珠格，
+                //   仍挂着会停在上一格导致「选中态错位」。所以选搜索时 target 直接归 0。
                 val indicatorAlpha by animateFloatAsState(
-                    targetValue = if (dockExpanded) 1f else 0f,
+                    targetValue = if (dockExpanded && selectedTab != AppTab.Search) 1f else 0f,
                     animationSpec = spring(stiffness = 180f, dampingRatio = 0.7f),
                     label = "melox-indicator-alpha",
                 )
                 if (indicatorAlpha > 0.001f && !frostedGlass) {
-                    // BiliNext L449：rememberCombinedBackdrop(backdrop, tabsBackdrop)
-                    // 本项目 backdrop 来自 CompositionLocal（= bottomChromeBackdrop / pageBackdrop）
-                    val indicatorBackdrop = rememberCombinedBackdrop(
-                        LocalMeloXBackdrop.current ?: tabsBackdrop,
-                        tabsBackdrop,
-                    )
+                    // ⚠ 原先这里建了一个 `rememberCombinedBackdrop(...)` 赋给 `indicatorBackdrop`
+                    //   但**从未被使用**（真正生效的是下面 `meloXLiquidTabSelection` 内部按
+                    //   `(LocalMeloXBackdrop, panelBackdrop = tabsBackdrop)` 自己建的那一枚）。
+                    //   它白白多占一整张 GPU 图层，且因为挂在这个条件分支里，水珠每次显隐都会
+                    //   重新分配/释放一次 —— 低端机上等于反复抖动一大块显存。
+                    //   已删除；组合关系由 `meloXLiquidTabSelection` 内部负责。
                     Box(
                         modifier = Modifier
                             .graphicsLayer {
@@ -1494,6 +1542,16 @@ private fun RowScope.RootTabButton(
     title: String,
     glyph: RootGlyph,
     selected: Boolean,
+    // ⚠ **只上强调色，不动字形/语义** —— 专给「毛玻璃模式下没有水珠指示器」用。
+    //   为什么不直接复用 `selected`：`selected` 是**三件事捆在一起**的开关 ——
+    //     ① `desiredForeground` 的强调红；② `RootGlyphIcon` 的 Fill/Regular 字形；
+    //     ③ 语义 `selected`。
+    //   而液态模式透过水珠看到的那张图来自 **L2 捕获层**，那里是恒 `selected = false`
+    //   ⇒ 折射出来的是 **Regular 轮廓 + 强调红 + SemiBold 标签**。
+    //   若毛玻璃模式直接传 `selected = true`，字形会跳成 Fill ⇒ 同一个 tab 在两种
+    //   模式下的**图标形状**都对不上（「毛玻璃模式的房子是实心的，玻璃模式是空心的」）。
+    //   ⇒ 拆出这个参数，让毛玻璃模式与液态模式的观感逐项相等。
+    selectedTint: Boolean = false,
     labelAlpha: Float,
     // 原先这里有个 `dark: Boolean` 且完全没人用。改成「整棵子树插值配色」后，
     // 前景直接读 `colorScheme.onSurface` 就会跟着动 ⇒ 该参数连调用点一并删掉。
@@ -1508,7 +1566,8 @@ private fun RowScope.RootTabButton(
 ) {
     val desiredForeground = when {
         colorFilterTint != null -> colorFilterTint
-        selected -> MeloXSystemColors.Red
+        // `selectedTint`（毛玻璃模式的强调色）与 `selected` 同色、同动画路径。
+        selected || selectedTint -> MeloXSystemColors.Red
         // 回到 `colorScheme.onSurface` —— 外层 `BottomBarToneTheme` 已经把整套配色
         // 插值过，这个读值自己就会跟着动，**不需要**再在这里写端点。
         else -> MaterialTheme.colorScheme.onSurface.copy(alpha = 0.78f)
@@ -1561,7 +1620,14 @@ private fun RowScope.RootTabButton(
             fontSize = 11.sp,
             lineHeight = 13.sp,
             // BiliNext L704：`colorFilterTint != null` 也算「强调」→ SemiBold
-            fontWeight = if (selected || colorFilterTint != null) FontWeight.SemiBold else FontWeight.Medium,
+            // ⚠ `selectedTint` 也算：液态模式下透过水珠看到的标签就是 SemiBold
+            //   （L2 恒 `colorFilterTint != null`）⇒ 毛玻璃模式必须同字重，否则
+            //   「切到毛玻璃标签变细」。
+            fontWeight = if (selected || selectedTint || colorFilterTint != null) {
+                FontWeight.SemiBold
+            } else {
+                FontWeight.Medium
+            },
             color = foreground,
         )
     }
@@ -1644,9 +1710,10 @@ private fun lerpDp(start: Dp, end: Dp, progress: Float): Dp =
  *
  * ⚠ 必须用这个版本，否则弹簧的过冲会在最后一步被 [lerpDp] 吃掉，Q 弹永远看不见。
  * fraction 由 [sprungFrac] 产出，已限幅，不会把布局撑爆；但**外扩方向**是否安全
- * 取决于该几何周围有没有邻居 —— 过冲停在 dp，不按固定 bounce 同比放大：
- * 展开右缘预算 4dp，按 [NavExpandLeftShare] 落到两端；
- * 收缩保住约 10.30dp。bounce 由当次行程反推。
+ * 取决于该几何周围有没有邻居 —— 现在这件事交给**弹簧参数自己**，不再做事后压缩：
+ * nav 展开方向的越界量由 `MeloXSprings.BottomBarExpandBounce` 定死在 6.02dp
+ * （右预算 4dp + 左侧让出 2dp），再按 `NavExpandLeftShare` 落到两端；
+ * 收缩方向由 0.30 那条管着（10.30dp，四周没有邻居）。
  */
 private fun lerpDpBouncy(start: Dp, end: Dp, fraction: Float): Dp =
     (start.value + (end.value - start.value) * fraction).dp

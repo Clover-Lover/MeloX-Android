@@ -350,6 +350,12 @@ private suspend fun BottomBarToneState.capture(window: Window, rect: Rect): Floa
         //   ("Window doesn't have a backing surface!")。withTimeoutOrNull 只接
         //   CancellationException，兜不住它 ⇒ 直接打崩 App。采样只是「锦上添花」，
         //   任何失败都必须退化成 null，让上层 `?: continue` 跳过这一拍。
+        // ⚠⚠ 所以抓 `Throwable`，而不是 `IllegalArgumentException`。
+        //   已知会同步抛的：
+        //   - IllegalArgumentException "Window doesn't have a backing surface!"（文档写明）
+        //   - IllegalStateException：部分 ROM（vivo / 多窗口）在 surface 已销毁时抛的不是 IAE；
+        //   - SecurityException：个别 OEM 对 `PixelCopy` 加了调用方校验。
+        //   采样是「锦上添花」，任何失败都必须退化成 null。
         val launched = try {
             PixelCopy.request(
                 window,
@@ -358,14 +364,24 @@ private suspend fun BottomBarToneState.capture(window: Window, rect: Rect): Floa
                 { result ->
                     if (cont.isActive) {
                         cont.resume(
-                            if (result == PixelCopy.SUCCESS) meanLinearLuminance(bmp) else null
+                            if (result == PixelCopy.SUCCESS) {
+                                // ⚠ 竞态：`release()` 可能在 request 之后、回调之前回收了这张图
+                                //   （`DisposableEffect.onDispose` → `toneState.release()`）。
+                                //   对已回收的 Bitmap 调 `getPixels()` 会抛
+                                //   IllegalStateException("Can't call getPixels() on a recycled bitmap")。
+                                if (bmp.isRecycled || released) null else meanLinearLuminance(bmp)
+                            } else {
+                                null
+                            }
                         )
                     }
                 },
                 Handler(Looper.getMainLooper()),
             )
             true
-        } catch (_: IllegalArgumentException) {
+        } catch (t: Throwable) {
+            // CancellationException 必须放行，否则会破坏协程取消语义。
+            if (t is kotlinx.coroutines.CancellationException) throw t
             false
         }
         if (launched) {
