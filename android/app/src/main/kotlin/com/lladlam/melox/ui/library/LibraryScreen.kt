@@ -109,6 +109,7 @@ import com.lladlam.melox.core.music.model.MusicAccountSummary
 import com.lladlam.melox.core.music.model.MusicAlbumSummary
 import com.lladlam.melox.core.music.model.MusicArtistSummary
 import com.lladlam.melox.core.music.model.MusicSource
+import com.lladlam.melox.core.music.model.MusicTrack
 import com.lladlam.melox.core.music.provider.MeloXLegacyUiBridge
 import com.lladlam.melox.core.music.provider.MeloXMusicProviders
 import com.lladlam.melox.core.music.provider.loadAllPlaylistTracks
@@ -1433,7 +1434,10 @@ private fun MeloXProviderArtistDetailScreen(
     val capability = remember(artist.id.source) {
         MeloXMusicProviders.create(context).require(artist.id.source) as? ArtistCapability
     }
-    var songs by remember(artist.id) { mutableStateOf<List<SearchSong>>(emptyList()) }
+    // Keep the provider tracks as MusicTrack. Converting them to the legacy Netease
+    // SearchSong and playing through PlaybackCommands resolved provider (e.g. QQ)
+    // artist songs against the wrong source, so playback failed intermittently.
+    var tracks by remember(artist.id) { mutableStateOf<List<MusicTrack>>(emptyList()) }
     var loading by remember(artist.id) { mutableStateOf(true) }
     var errorMessage by remember(artist.id) { mutableStateOf<String?>(null) }
     LaunchedEffect(artist.id) {
@@ -1445,10 +1449,10 @@ private fun MeloXProviderArtistDetailScreen(
         }
         runCatching {
             withContext(Dispatchers.IO) {
-                reader.artistDetail(artist, page = 1, pageSize = 100).tracks.map(MeloXLegacyUiBridge::track)
+                reader.artistDetail(artist, page = 1, pageSize = 100).tracks
             }
         }.onSuccess {
-            songs = it
+            tracks = it
             errorMessage = null
         }.onFailure { failure ->
             errorMessage = failure.message
@@ -1488,7 +1492,7 @@ private fun MeloXProviderArtistDetailScreen(
             errorMessage != null -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                 Text(errorMessage.orEmpty(), color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.62f))
             }
-            songs.isEmpty() -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+            tracks.isEmpty() -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                 Text(
                     stringResource(R.string.library_no_songs),
                     color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.48f),
@@ -1498,17 +1502,17 @@ private fun MeloXProviderArtistDetailScreen(
                 modifier = Modifier.fillMaxSize(),
                 contentPadding = PaddingValues(bottom = MeloXBottomContentClearance),
             ) {
-                items(songs.size, key = { index -> "$index:${songs[index].id}" }) { index ->
-                    val song = songs[index]
+                items(tracks.size, key = { index -> "$index:${tracks[index].id.value}" }) { index ->
+                    val track = tracks[index]
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
                             .height(56.dp)
                             .clickable {
-                                PlaybackCommands.playQueue(
+                                ProviderPlaybackCommands.playQueue(
                                     context = context,
-                                    songs = songs,
-                                    selectedSongId = song.id,
+                                    tracks = tracks,
+                                    selectedTrackId = track.id,
                                     onFailure = { failure -> errorMessage = failure.message },
                                 )
                             }
@@ -1517,14 +1521,14 @@ private fun MeloXProviderArtistDetailScreen(
                     ) {
                         Column(Modifier.weight(1f)) {
                             Text(
-                                song.name,
+                                track.title,
                                 maxLines = 1,
                                 overflow = TextOverflow.Ellipsis,
                                 fontSize = 16.sp,
                                 color = MaterialTheme.colorScheme.onBackground,
                             )
                             Text(
-                                song.artists,
+                                track.artistText,
                                 maxLines = 1,
                                 overflow = TextOverflow.Ellipsis,
                                 fontSize = 13.sp,
