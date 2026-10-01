@@ -261,11 +261,11 @@ private fun NeteaseHomeDataScreen(onOpenTool: (String) -> Unit) {
     // 内容与可见性分开持有：返回时只把 selectedCollection 置空（让列表卡片重新进入过渡），
     // overlayCollection 保留，退出过渡期间详情仍被组合 → 封面才能一镜到底地 morph 回卡片。
     var overlayCollection by remember { mutableStateOf<DiscoveryCollection?>(null) }
-    // 卡片「已被详情占用」的稳定 key。不能用瞬变的 selectedCollection?.key：返回瞬间它
-    // 变 null，刚收起的那张卡会立刻重新满足 `destinationKey != selectedKey` 而「复活」
-    // 进 enter，可它的 sharedElement 还被退场中的 hero 占用 —— 卡片就卡在 overlay
-    // 中间态不动。这里让它在退场动画彻底跑完前一直指向旧详情。
-    var occupiedCollectionKey by remember { mutableStateOf<String?>(null) }
+    // 卡片可见性必须与 selectedCollection 同帧同步：点击即退出、返回即进入，才能与详情
+    // hero 的 AnimatedVisibility 完全重叠。原「占用 key」方案把它压后到 LaunchedEffect
+    // 里赋值 —— 进入晚一帧、返回要等 PageExitMillis + settle(280ms) 才放开，返回方向的
+    // 卡片 enter 落在 hero exit(220ms) 结束之后，两端永不重叠 → sharedElement 无从配对。
+    // 过渡串行化已由 overlayTransitionBusy 排队负责，不再需要占用 key。
     var selectedArtworkSlot by remember { mutableStateOf<String?>(null) }
     // 覆盖层进入/退出过渡是否仍在进行。退出没跑完就点下一张卡会让 HomeOverlayPage 的
     // AnimatedVisibility 取消旧过渡、直奔新目标，旧卡被遗弃在半途。过渡期间的打开请求
@@ -363,17 +363,14 @@ private fun NeteaseHomeDataScreen(onOpenTool: (String) -> Unit) {
 
     SharedTransitionLayout(Modifier.fillMaxSize()) {
         val sharedScope = this
-        // 覆盖层过渡生命周期：进入时锁住并记住占用的卡片，退出跑完后才解锁、放开卡片。
-        // 详见 [occupiedCollectionKey] / [overlayTransitionBusy] 的注释。
+        // 覆盖层过渡生命周期：只负责上锁/解锁与排队。卡片可见性已由 selectedCollection
+        // 同帧同步驱动（见声明处注释），与详情 hero 完全对齐。
         LaunchedEffect(selectedCollection) {
             overlayTransitionBusy = true
-            val opening = selectedCollection
-            if (opening != null) {
-                occupiedCollectionKey = selectedArtworkSlot?.let { "$it:${opening.key}" } ?: opening.key
+            if (selectedCollection != null) {
                 delay(MeloXMotion.PageEnterMillis.toLong() + DiscoveryOverlaySettleMillis)
             } else if (overlayCollection != null) {
                 delay(MeloXMotion.PageExitMillis.toLong() + DiscoveryOverlaySettleMillis)
-                occupiedCollectionKey = null
                 selectedArtworkSlot = null
                 overlayCollection = null
             }
@@ -469,7 +466,11 @@ private fun NeteaseHomeDataScreen(onOpenTool: (String) -> Unit) {
                 overlayCollection = collection
             }
         },
-            selectedCollectionKey = occupiedCollectionKey,
+            // 与卡片侧 `"$slot:${collection.key}" != selectedCollectionKey` 同口径、
+            // 同帧求值：点击当帧卡片就退出，返回当帧卡片就进入。
+            selectedCollectionKey = selectedCollection?.let { collection ->
+                selectedArtworkSlot?.let { slot -> "$slot:${collection.key}" } ?: collection.key
+            },
             sharedTransitionScope = sharedScope,
         )
 
@@ -934,9 +935,7 @@ private fun NeteaseExploreDataScreen() {
     var selectedCollection by remember { mutableStateOf<DiscoveryCollection?>(null) }
     // 见 NeteaseHomeDataScreen：内容保留到退出过渡结束，返回时封面才能 morph 回卡片。
     var overlayCollection by remember { mutableStateOf<DiscoveryCollection?>(null) }
-    // 见 NeteaseHomeDataScreen：卡片占用 key 要在退场动画跑完前保持指向旧详情，
-    // 过渡进行中的打开请求先排队，避免并行动画把旧卡遗弃在中间态。
-    var occupiedCollectionKey by remember { mutableStateOf<String?>(null) }
+    // 见 NeteaseHomeDataScreen：卡片可见性同帧同步，过渡串行化由排队负责。
     var overlayTransitionBusy by remember { mutableStateOf(false) }
     var pendingCollection by remember { mutableStateOf<DiscoveryCollection?>(null) }
     var selectedArtworkSlot by remember { mutableStateOf<String?>(null) }
@@ -968,13 +967,10 @@ private fun NeteaseExploreDataScreen() {
         // 覆盖层过渡生命周期，同 NeteaseHomeDataScreen。
         LaunchedEffect(selectedCollection) {
             overlayTransitionBusy = true
-            val opening = selectedCollection
-            if (opening != null) {
-                occupiedCollectionKey = selectedArtworkSlot?.let { "$it:${opening.key}" } ?: opening.key
+            if (selectedCollection != null) {
                 delay(MeloXMotion.PageEnterMillis.toLong() + DiscoveryOverlaySettleMillis)
             } else if (overlayCollection != null) {
                 delay(MeloXMotion.PageExitMillis.toLong() + DiscoveryOverlaySettleMillis)
-                occupiedCollectionKey = null
                 selectedArtworkSlot = null
                 overlayCollection = null
             }
@@ -1004,7 +1000,11 @@ private fun NeteaseExploreDataScreen() {
                     overlayCollection = collection
                 }
             },
-            selectedCollectionKey = occupiedCollectionKey,
+            // 与卡片侧 `"$slot:${collection.key}" != selectedCollectionKey` 同口径、
+            // 同帧求值：点击当帧卡片就退出，返回当帧卡片就进入。
+            selectedCollectionKey = selectedCollection?.let { collection ->
+                selectedArtworkSlot?.let { slot -> "$slot:${collection.key}" } ?: collection.key
+            },
             sharedTransitionScope = sharedScope,
         )
         HomeOverlayPage(
