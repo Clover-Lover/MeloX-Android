@@ -554,8 +554,11 @@ private fun SharedArtworkDestination(
         val rawFullY = if (isLandscape) {
             contentTop + ((maxHeight - contentTop - fullArtworkSize) / 2f).coerceAtLeast(0.dp)
         } else {
-            contentTop + (portraitContentHeight - fullArtworkSize - artworkTitleGap - titleBlockHeight)
-                .coerceAtLeast(0.dp)
+            // Center the artwork + title above the controls. Bottom-aligning pushed every
+            // spare pixel above the (width-capped) square cover, so on tall displays the
+            // cover read as sitting too low.
+            val artworkBlockHeight = fullArtworkSize + artworkTitleGap + titleBlockHeight
+            contentTop + ((portraitContentHeight - artworkBlockHeight) / 2f).coerceAtLeast(0.dp)
         }
         val fullY = rawFullY.coerceIn(
             contentTop,
