@@ -101,6 +101,7 @@ import com.lladlam.melox.playback.ProviderPlaybackCommands
 import com.lladlam.melox.ui.animation.MeloXMotion
 import com.lladlam.melox.ui.animation.meloXPageEnter
 import com.lladlam.melox.ui.animation.meloXPageExit
+import com.lladlam.melox.ui.animation.meloXSettledMillis
 import com.lladlam.melox.ui.account.MeloXAccountActivity
 import com.lladlam.melox.ui.collection.MeloXCollectionDetailActivity
 import com.lladlam.melox.ui.glass.MeloXActionIcon
@@ -368,9 +369,9 @@ private fun NeteaseHomeDataScreen(onOpenTool: (String) -> Unit) {
         LaunchedEffect(selectedCollection) {
             overlayTransitionBusy = true
             if (selectedCollection != null) {
-                delay(MeloXMotion.PageEnterMillis.toLong() + DiscoveryOverlaySettleMillis)
+                delay(meloXSettledMillis(MeloXMotion.PageEnterMillis, DiscoveryOverlaySettleMillis))
             } else if (overlayCollection != null) {
-                delay(MeloXMotion.PageExitMillis.toLong() + DiscoveryOverlaySettleMillis)
+                delay(meloXSettledMillis(MeloXMotion.PageExitMillis, DiscoveryOverlaySettleMillis))
                 selectedArtworkSlot = null
                 overlayCollection = null
             }
@@ -968,9 +969,9 @@ private fun NeteaseExploreDataScreen() {
         LaunchedEffect(selectedCollection) {
             overlayTransitionBusy = true
             if (selectedCollection != null) {
-                delay(MeloXMotion.PageEnterMillis.toLong() + DiscoveryOverlaySettleMillis)
+                delay(meloXSettledMillis(MeloXMotion.PageEnterMillis, DiscoveryOverlaySettleMillis))
             } else if (overlayCollection != null) {
-                delay(MeloXMotion.PageExitMillis.toLong() + DiscoveryOverlaySettleMillis)
+                delay(meloXSettledMillis(MeloXMotion.PageExitMillis, DiscoveryOverlaySettleMillis))
                 selectedArtworkSlot = null
                 overlayCollection = null
             }

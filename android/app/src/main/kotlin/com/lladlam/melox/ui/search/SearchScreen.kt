@@ -123,6 +123,7 @@ import com.lladlam.melox.ui.player.MeloXSongActionsOverlay
 import com.lladlam.melox.ui.animation.MeloXMotion
 import com.lladlam.melox.ui.animation.meloXPageEnter
 import com.lladlam.melox.ui.animation.meloXPageExit
+import com.lladlam.melox.ui.animation.meloXSettledMillis
 import com.lladlam.melox.ui.layout.rememberMeloXWindowInfo
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.CancellationException
@@ -551,10 +552,10 @@ fun SearchScreen(
         overlayTransitionBusy = true
         if (overlayDestination != null) {
             // 进入过渡跑完（含 sharedElement morph 收尾）再解锁。
-            delay(MeloXMotion.PageEnterMillis.toLong() + OverlayTransitionSettleMillis)
+            delay(meloXSettledMillis(MeloXMotion.PageEnterMillis, OverlayTransitionSettleMillis))
         } else if (overlayDetail != null) {
             // 退出过渡：详情内容（overlayDetail）保留到过渡跑完，退场期间详情子树仍在组合。
-            delay(MeloXMotion.PageExitMillis.toLong() + OverlayTransitionSettleMillis)
+            delay(meloXSettledMillis(MeloXMotion.PageExitMillis, OverlayTransitionSettleMillis))
             overlayDetail = null
         }
         // 被新的打开请求取消时停在 delay，不解锁、也不清空排队。这段自己跑完
