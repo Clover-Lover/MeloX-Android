@@ -300,7 +300,10 @@ fun MeloXIOSMiniPlayer(
                     .clip(Capsule())
                     .padding(
                         horizontal = lerpDp(12.dp, 8.dp, compact),
-                        vertical = lerpDp(6.dp, 3.dp, compact),
+                        // Expanded content was exactly 30dp (title 15 + artist 15)
+                        // with no slack, so the last line's descenders were clipped.
+                        // Keep 4dp instead of 6dp to leave room for both lines.
+                        vertical = lerpDp(4.dp, 3.dp, compact),
                     ),
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(10.dp),
