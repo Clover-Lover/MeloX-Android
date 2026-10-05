@@ -22,11 +22,11 @@
 
 > MeloX Android is an unofficial open-source project. It is not affiliated with, partnered with, or authorized by NetEase Cloud Music, Xiaomi, Apple, or their related companies.
 
-## Current version: 0.6.1
+## Current version: 0.6.2
 
-`0.6.1` continues from `0.6.0` with a bottom-bar rework and fixes for the playback queue, lyrics, HyperOS Super Island, the mini player, and home playlists.
+`0.6.2` continues from `0.6.1` with shared-element transitions from cards to detail, a system-locale pass (Simplified/Traditional Chinese and Japanese), YouTube Music home and synced lyrics, a roaming flowing-light background, liquid-glass settings sliders, and a large batch of crash and back-navigation fixes.
 
-- Download and full notes: [GitHub Releases](https://github.com/lladlam/MeloX-Android/releases/tag/0.6.1)
+- Download and full notes: [GitHub Releases](https://github.com/lladlam/MeloX-Android/releases/tag/0.6.2)
 - Version history: [CHANGELOG.md](CHANGELOG.md)
 
 > [!WARNING]
