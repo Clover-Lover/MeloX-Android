@@ -306,7 +306,18 @@ private fun MeloXAppleMusicLyricsPanel(
         if (mediaId.isNullOrBlank()) return@LaunchedEffect
         isLoading = true
         errorMessage = null
-        runCatching { MeloXProviderLyricsLoader.load(appContext, state) }
+        runCatching {
+            MeloXProviderLyricsLoader.load(appContext, state) { upgraded ->
+                // Hot upgrade to authored word timing. Only swap while the
+                // track is still near its start; a style change mid-song would
+                // be jarring. The callback fires on the main thread.
+                val livePositionMs = anchorPositionMs +
+                    (SystemClock.elapsedRealtime() - anchorRealtimeMs)
+                if (livePositionMs <= MeloXProviderLyricsLoader.AmllUpgradeWindowMs) {
+                    lyrics = upgraded
+                }
+            }
+        }
             .onSuccess { lyrics = it }
             .onFailure { errorMessage = it.message ?: "歌词加载失败" }
         // A newly selected item always enters from its lyric start anchor.

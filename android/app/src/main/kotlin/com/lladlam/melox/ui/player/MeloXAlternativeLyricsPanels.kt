@@ -34,6 +34,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -76,11 +77,21 @@ private fun rememberAlternativeLyrics(
     var error by remember(mediaId, automaticLyricSelectionEnabled) { mutableStateOf<String?>(null) }
     var loadedRequestKey by remember(mediaId, automaticLyricSelectionEnabled) { mutableStateOf<String?>(null) }
     val requestKey = lyricUiRequestKey(state, automaticLyricSelectionEnabled)
+    val livePlaybackState by rememberUpdatedState(state)
+    val livePositionMs = { livePlaybackState.positionMs }
     LaunchedEffect(active, mediaId, state.title, state.artist, state.album, state.durationMs, automaticLyricSelectionEnabled) {
         if (!active || mediaId.isNullOrBlank() || loadedRequestKey == requestKey) return@LaunchedEffect
         loading = true
         error = null
-        runCatching { MeloXProviderLyricsLoader.load(context, state) }
+        runCatching {
+            MeloXProviderLyricsLoader.load(context, state) { upgraded ->
+                // Hot upgrade to authored word timing, only while the track is
+                // still near its start. The callback runs on the main thread.
+                if (livePositionMs() <= MeloXProviderLyricsLoader.AmllUpgradeWindowMs) {
+                    document = upgraded
+                }
+            }
+        }
             .onSuccess {
                 document = it
                 loadedRequestKey = requestKey
@@ -148,11 +159,21 @@ private fun rememberTextPVLyrics(
     var loadedRequestKey by remember(mediaId, automaticLyricSelectionEnabled) { mutableStateOf<String?>(null) }
     val requestKey = lyricUiRequestKey(state, automaticLyricSelectionEnabled)
 
+    val livePlaybackState by rememberUpdatedState(state)
+    val livePositionMs = { livePlaybackState.positionMs }
     LaunchedEffect(active, mediaId, state.title, state.artist, state.album, state.durationMs, automaticLyricSelectionEnabled) {
         if (!active || mediaId.isNullOrBlank() || loadedRequestKey == requestKey) return@LaunchedEffect
         loading = true
         error = null
-        runCatching { MeloXProviderLyricsLoader.load(context, state) }
+        runCatching {
+            MeloXProviderLyricsLoader.load(context, state) { upgraded ->
+                // Hot upgrade to authored word timing, only while the track is
+                // still near its start. The callback runs on the main thread.
+                if (livePositionMs() <= MeloXProviderLyricsLoader.AmllUpgradeWindowMs) {
+                    document = upgraded
+                }
+            }
+        }
             .onSuccess {
                 document = it
                 loadedRequestKey = requestKey
