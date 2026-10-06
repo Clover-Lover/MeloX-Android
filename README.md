@@ -289,6 +289,33 @@ Upstream MeloX also credits these projects. The Android port inherits parts of t
 
 If a later Android version migrates PV Tool, BeatNet, or other MeloX features, their separate licenses and attribution will be kept as required upstream.
 
+## Contributing
+
+Welcome to MeloX! Contributions are warmly welcome, whether you hand-craft every line or let an AI ride shotgun.
+
+### Reporting issues or suggestions
+
+- Prefer opening an issue on [GitHub Issues](https://github.com/lladlam/MeloX-Android/issues).
+- If GitHub is unreachable from your network, email **`lladlam@outlook.com`** instead. Include a clear **subject**, a **detailed description** of the problem or suggestion, and **screenshots and logs**.
+
+### Contributing code
+
+1. **Fork this repository.** Note that the target branch is **`contributor`**, not `main`.
+2. Make your changes in your fork and commit them with clear messages.
+3. Open a **pull request against the `contributor` branch**.
+4. **Attach a screen recording or screenshots of the change running on a real device** in the PR comments.
+5. After review we merge into `contributor`; once it has been verified again there, it is merged into `main`.
+
+> Pull requests opened directly against `main` are detected automatically and redirected to `contributor`.
+
+### Contribution requirements
+
+Changes are accepted only if they meet all of the following:
+
+1. **No useless features** — anything unrelated to music or the listening experience is not accepted.
+2. **No illegal content** — nothing that violates national laws and regulations, such as providing pirated music services.
+3. **No breaking changes.**
+
 ## Disclaimer
 
 This project is for learning, research, and open-source exchange.
